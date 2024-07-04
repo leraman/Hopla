@@ -2517,7 +2517,7 @@ colnames(combined_maplist) <- c("id","pos","pos.out","chr")
 write.csv(combined_maplist, file.path(args$out.dir, 'map_list.csv'), row.names=FALSE)
 
 # -----
-# Write BAF to BED file
+# Write BAF to BED file/TSV file
 # -----
 
 out_dir <- args$out.dir  
@@ -2543,7 +2543,10 @@ for (sample_id in sample_ids) {
   # Rename columns to remove sample ID prefix
   setnames(sample_data, sample_cols, sub(paste0(sample_id, "\\."), "", sample_cols))
   sample_data[, BAF := as.numeric(AF)]
-    
+  
+  # Remove "chr" prefix from chromosome values
+  sample_data[, CHROM := sub("^chr", "", CHROM)]
+
   # Create BED-like entries
   bed_entries <- data.table(
     chromosome = sample_data$CHROM,
@@ -2551,17 +2554,31 @@ for (sample_id in sample_ids) {
     end = sample_data$POS,
     REF = sample_data$REF,
     ALT = sample_data$ALT,
-    Sample = sample_id,
-    BAF = sample_data$BAF
+    BAF = sample_data$BAF,
+    Sample = sample_id
   )
   
   all_samples_bed_data[[sample_id]] <- bed_entries
+  # Write the individual sample BED file
+  individual_bed_filename <- file.path(out_dir, paste0(sample_id, "_BAF.bed"))
+  fwrite(bed_entries, file = individual_bed_filename, sep = "\t", quote = FALSE)
+  # Write the individual sample TSV file
+  individual_tsv_filename <- file.path(out_dir, paste0(sample_id, "_BAF.tsv"))
+  fwrite(bed_entries, file = individual_tsv_filename, sep = "\t", quote = FALSE)
+  
   }
   
 final_bed <- rbindlist(all_samples_bed_data)
-base_name <- sub("\\.csv$", ".bed", basename(vcf_file))
+base_name <- sub("\\.csv$", "_BAF.bed", basename(vcf_file))
 full_path <- file.path(out_dir, base_name)
   
 fwrite(final_bed, file = full_path, sep = "\t", quote = FALSE)
+
+base_name_tsv <- sub("\\.csv$", "_BAF.tsv", basename(vcf_file))
+full_path_tsv <- file.path(out_dir, base_name_tsv)
   
-cat("BED file created at:", full_path)
+fwrite(final_bed, file = full_path_tsv, sep = "\t", quote = FALSE)
+  
+cat("BED file created at:", full_path, "\n")
+cat("TSV file created at:", full_path_tsv, "\n")
+
