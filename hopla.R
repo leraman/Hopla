@@ -2310,6 +2310,7 @@ args <- list(
   genders=c(),
   run.merlin=T,
   run.visualization = F,
+  BAF.outputformat = "tsv",
   cytoband.file=c(),
   
   ## variant inclusion arguments: filter 1
@@ -2522,7 +2523,10 @@ write.csv(combined_maplist, file.path(args$out.dir, 'map_list.csv'), row.names=F
 
 out_dir <- args$out.dir  
 vcf_file <- file.path(out_dir, 'vcfs.csv') 
-
+output_format <- args$BAF.outputformat
+if (output_format == "BOTH"){
+  output_format <- c("tsv", "bed")
+}
 # Read VCF data from a CSV file
 vcf_data <- read.csv(vcf_file, stringsAsFactors = FALSE)
   
@@ -2530,12 +2534,12 @@ vcf_data <- read.csv(vcf_file, stringsAsFactors = FALSE)
 setDT(vcf_data)
   
 # List to collect data from all samples
-all_samples_bed_data <- list()
+all_samples_baf_data <- list()
   
 # Extract sample identifiers based on unique patterns in column names
 sample_ids <- unique(sub("\\..*", "", colnames(vcf_data)[-1]))
   
-# Process each sample
+# Loop over each sample ID
 for (sample_id in sample_ids) {
   # Filter columns for the current sample
   sample_cols <- grep(paste0("^", sample_id, "\\."), names(vcf_data), value = TRUE)
@@ -2547,8 +2551,8 @@ for (sample_id in sample_ids) {
   # Remove "chr" prefix from chromosome values
   sample_data[, CHROM := sub("^chr", "", CHROM)]
 
-  # Create BED-like entries
-  bed_entries <- data.table(
+  # Create Baf-like entries
+  baf_entries <- data.table(
     chromosome = sample_data$CHROM,
     start = sample_data$POS - 1,  
     end = sample_data$POS,
@@ -2558,27 +2562,22 @@ for (sample_id in sample_ids) {
     Sample = sample_id
   )
   
-  all_samples_bed_data[[sample_id]] <- bed_entries
-  # Write the individual sample BED file
-  individual_bed_filename <- file.path(out_dir, paste0(sample_id, "_BAF.bed"))
-  fwrite(bed_entries, file = individual_bed_filename, sep = "\t", quote = FALSE)
-  # Write the individual sample TSV file
-  individual_tsv_filename <- file.path(out_dir, paste0(sample_id, "_BAF.tsv"))
-  fwrite(bed_entries, file = individual_tsv_filename, sep = "\t", quote = FALSE)
-  
+  all_samples_baf_data[[sample_id]] <- baf_entries
+
+  # Write the individual sample to a TSV and/or bed file 
+  for (format in output_format) {
+    individual_filename <- file.path(out_dir, paste0(sample_id, "_BAF.", format))
+    fwrite(baf_entries, file = individual_filename, sep = "\t", quote = FALSE)
   }
   
-final_bed <- rbindlist(all_samples_bed_data)
-base_name <- sub("\\.csv$", "_BAF.bed", basename(vcf_file))
-full_path <- file.path(out_dir, base_name)
-  
-fwrite(final_bed, file = full_path, sep = "\t", quote = FALSE)
+}
 
-base_name_tsv <- sub("\\.csv$", "_BAF.tsv", basename(vcf_file))
-full_path_tsv <- file.path(out_dir, base_name_tsv)
-  
-fwrite(final_bed, file = full_path_tsv, sep = "\t", quote = FALSE)
-  
-cat("BED file created at:", full_path, "\n")
-cat("TSV file created at:", full_path_tsv, "\n")
+# Combine all sample BAF data and write the final file to tsv and/or bed format
+final_baf <- rbindlist(all_samples_baf_data)
 
+for (format in output_format){
+  base_name <- sub("\\.csv$", paste0("_BAF.", format), basename(vcf_file))
+  full_path <- file.path(out_dir, base_name)
+  fwrite(final_baf, file = full_path, sep = "\t", quote = FALSE)
+  cat("File created at:", full_path, "\n")
+}
