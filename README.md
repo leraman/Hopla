@@ -32,6 +32,9 @@ conda install -c conda-forge -c bioconda hopla
 - **`--mother.ids [string list, comma sep, no default]`** Sample IDs mothers; when not available, use NA; order matches `--sample.ids`; e.g., NA,NA,sample_B
 - **`--genders [char (M/F/NA) list, comma sep, no default]`** Sample genders; when not available, use NA, model will predict gender (see below); order matches `--sample.ids`; e.g., M,F,NA
 - **`--run.merlin [boolean, default=T]`** Whether Merlin (i.e., haplotyping) should be executed; **Note that the Merlin executables folder (i.e., path/to/merlin-1.1.2/executables) should be located in $PATH, which is automatically the case when using [Easy install](#easy-install); Merlin only runs in Linux**
+- **`--run.visualization [boolean, default=F]`** Whether visualization should be executed 
+
+- **`--BAF.outputformat [string, default=tsv]`** Specify which type of output format of BAF information is needed. (either tsv, bed or BOTH)
 - **`--cytoband.file [string, no default]`** [UCSC cytoband file](https://hgdownload.soe.ucsc.edu/downloads.html#human); when given, chromosome bands are shown on top of chromosome-wise figures; highly improves interpretability of figures; e.g., path/to/cytoband.hg38.txt
 
 ### **Important** optional variant inclusion arguments: filter 1
@@ -152,7 +155,18 @@ hopla --settings example/example-settings.txt
 
 # Output
 
-The output is an interactive HTML file. By mouse hovering, draging, etc., figures can be manipulated, and often, raw data can be consulted. A partial toy example is given at *example/hopla.html*.  
+The output are files with the specific data generated from hopla.
+
+- **'vcfs.csv'**, Generated from vcf objects
+- **'parsed_flow.csv'**, Generated from merlin output
+- **'parsed_geno.csv'**, Generated from merlin output
+- **'map_list.csv'**, Generated from merlin output
+- **'is_corrected.csv'**, Generated from merlin output
+- **'vcfs_Baf.tsv or .bed'**, TSV or Bed file with Baf information from all samples
+- **'sampele_name_Baf.tsv or .bed'**, TSV or bed files with Baf information from a specific samples
+
+When visualization is used:
+Next to the files that are generated also an interactive HTML file is generated. By mouse hovering, draging, etc., figures can be manipulated, and often, raw data can be consulted. A partial toy example is given at *example/hopla.html*.  
 
 ## Family/disease information
 
