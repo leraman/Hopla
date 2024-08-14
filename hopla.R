@@ -1056,6 +1056,7 @@ get.haplo.profiles <- function(){
   chr.lengths <- sapply(chrs, function(x) max(vcfs.filtered2[[1]]$POS[vcfs.filtered2[[1]]$CHROM == x]))
   
   haplo.profiles <- list()
+  all_haplo_frames <- data.frame()  
   for (c in chrs){
     haplo.frame <- matrix(nrow = 0, ncol = 9)
     annot.list <- list()
@@ -1079,10 +1080,33 @@ get.haplo.profiles <- function(){
       id2 <- paste0(c, ':', map.list[[c]]$pos.out, ' (', g2, ')')
       y1 <- length(args$samples.no.u) * 3 - which(args$samples.no.u == s) * 3 + 1
       y2 <- length(args$samples.no.u) * 3 - which(args$samples.no.u == s) * 3
+
+      # Extract breakpoints
+      breakpoints_f1 <- c(x[1], breaks_f1$breakpoints, x[length(x)])
+      breakpoints_f2 <- c(x[1], breaks_f2$breakpoints, x[length(x)])
+
+      # Function to find the corresponding break start and end for each x
+      find_breaks <- function(x, breakpoints) {
+            break_start <- rep(NA, length(x))
+            break_end <- rep(NA, length(x))
+            for (i in 1:(length(breakpoints) - 1)) {
+                mask <- x >= breakpoints[i] & x <= breakpoints[i + 1]
+                break_start[mask] <- breakpoints[i]
+                break_end[mask] <- breakpoints[i + 1]
+            }
+            return(list(break_start = break_start, break_end = break_end))
+        }
+        
+      # Find break start and end for f1 and f2
+      breaks_f1_result <- find_breaks(x, breakpoints_f1)
+      breaks_f2_result <- find_breaks(x, breakpoints_f2)
+
       haplo.frame.sub <- data.frame(c(x, x), c(rep(y1, length(x)), rep(y2, length(x))),
                                     c(id1, id2), c(letter.colors[f1],  letter.colors[f2]), symbol,
                                     stringsAsFactors = F, c(rep(which(args$samples.no.u == s) * 2 - 1, length(x)),
-                                                            rep(which(args$samples.no.u == s) * 2, length(x))))
+                                                            rep(which(args$samples.no.u == s) * 2, length(x))), sample_id = rep(s, length(x) * 2), chromosome = rep(c, length(x) * 2), break_start = c(breaks_f1_result$break_start, breaks_f2_result$break_start),
+                                                            break_end = c(breaks_f1_result$break_end, breaks_f2_result$break_end)
+    )
       annot.list[[which(args$samples.no.u == s)]] <- list(x = 1, y = y1 + 1,
                                                           text = args$samples.out[args$sample.ids == s], showarrow = F)
       if (all(c(g1, g2) == 'NA')) next
@@ -1091,7 +1115,8 @@ get.haplo.profiles <- function(){
     
     ## raw data points
     
-    colnames(haplo.frame) <- c('x', 'y', 'id', 'col', 'symbol', 'name')
+    colnames(haplo.frame) <- c('x', 'y', 'id', 'col', 'symbol', 'name','sample_id', 'chromosome', 'break_start', 'break_end')
+    all_haplo_frames <- rbind(all_haplo_frames, haplo.frame)  # Combine with the main data frame
     haplo.frame.for.plotly <- haplo.frame
     if (args$keep.chromosomes.only) haplo.frame.for.plotly <- filter.region(haplo.frame, c, whole.chromosome = T)
     if (args$keep.regions.only) haplo.frame.for.plotly <- filter.region(haplo.frame, c)
@@ -1139,6 +1164,23 @@ get.haplo.profiles <- function(){
     
     haplo.profiles[[c]] <- p
   }
+  output_directory <- args$out.dir
+  if (substr(output_directory, nchar(output_directory), nchar(output_directory)) != "/") {
+      output_directory <- paste0(output_directory, "/")
+    }
+  # Define the new subfolder path
+  new_subfolder <- paste0(output_directory, "Haplo_data/")
+
+  # Create the new subfolder if it doesn't already exist
+  if (!dir.exists(new_subfolder)) {
+    dir.create(new_subfolder, recursive = TRUE)
+    }
+  file_path <- paste0(new_subfolder, "output_dat_haplo.tsv")
+  
+  # Replace "chr" in the chrom column of the copy with an empty string
+  all_haplo_frames$chromosome <- gsub("chr", "", all_haplo_frames$chromosome)
+  
+  write.table(all_haplo_frames, file_path, sep="\t", row.names=FALSE, quote=FALSE)
   return(haplo.profiles)
 }
 
@@ -1436,6 +1478,30 @@ get.cn.fig <- function(){
     cd.object <- CNA(dat.cn$ratio[dat.cn$mask],
                      dat.cn$seqnames[dat.cn$mask],
                      dat.cn$start[dat.cn$mask], data.type = "logratio", sampleid = "X")
+    # Save dat.cn to a TSV file
+    sample_id <- args$sample.ids[s]
+    output_directory <- args$out.dir
+    if (substr(output_directory, nchar(output_directory), nchar(output_directory)) != "/") {
+        output_directory <- paste0(output_directory, "/")
+    }
+    # Define the new subfolder path
+    new_subfolder <- paste0(output_directory, "CNV_data/")
+
+    # Create the new subfolder if it doesn't already exist
+    if (!dir.exists(new_subfolder)) {
+    dir.create(new_subfolder, recursive = TRUE)
+    }
+    
+    # Create a copy of the dat.cn variable
+    dat.cn_copy <- dat.cn
+    
+    # Replace "chr" in the seqnames column of the copy with an empty string
+    dat.cn_copy$seqnames <- gsub("chr", "", dat.cn_copy$seqnames)
+
+    
+    file_path <- paste0(new_subfolder, "output_dat_CNV_", sample_id, ".tsv")
+    write.table(dat.cn_copy, file_path, sep="\t", row.names=FALSE, quote=FALSE)
+    
     f = file()
     sink(file=f) ## silence output
     segmented.cd.object <- invisible(segment(cd.object, verbose=1, weights = dat.cn$weight[dat.cn$mask]))
@@ -1443,6 +1509,49 @@ get.cn.fig <- function(){
     close(f)
     
     dat.seg <- segmented.cd.object$output
+    # Create a copy of the dat.seg variable
+    dat.seg_copy <- dat.seg
+    
+    # Replace "chr" in the chrom column of the copy with an empty string
+    dat.seg_copy$chrom <- gsub("chr", "", dat.seg_copy$chrom)
+    
+    file_path_seg <- paste0(new_subfolder, "output_segmented_CNV_", sample_id, ".tsv")
+    write.table(dat.seg_copy, file_path_seg, sep="\t", row.names=FALSE, quote=FALSE)
+    
+    # Function to find the correct seg.mean based on the range
+    find_seg_details <- function(seqname, start, end, dat_seg) {
+      relevant_segments <- dat_seg %>%
+        filter(chrom == seqname & loc.start <= end & loc.end >= start)
+      
+      if (nrow(relevant_segments) == 0) {
+        return(list(seg.mean = NA, seg.start = NA, seg.end = NA))
+      } else {
+        seg.mean <- mean(relevant_segments$seg.mean, na.rm = TRUE)
+        seg.start <- min(relevant_segments$loc.start)
+        seg.end <- max(relevant_segments$loc.end)
+        return(list(seg.mean = seg.mean, seg.start = seg.start, seg.end = seg.end))
+      }
+    }
+    # Apply the function to each row of dat.cn_copy and extract results
+    details <- mapply(find_seg_details, dat.cn_copy$seqnames, dat.cn_copy$start, dat.cn_copy$end, MoreArgs = list(dat_seg = dat.seg_copy), SIMPLIFY = FALSE)
+    
+    # Convert the list output to a data frame
+    details_df <- do.call(rbind, lapply(details, as.data.frame))
+    
+    # Bind the details to the original data frame
+    dat.cn_copy <- cbind(dat.cn_copy, details_df)
+    
+    # Filter out rows with NA values in seg.mean
+    filtered_data <- dat.cn_copy %>%
+      filter(!is.na(seg.mean))
+    
+    # Define the file path for the output TSV
+    file_path <- paste0(new_subfolder, "output_combined_CNV_", sample_id, ".tsv")
+    
+    # Write the filtered data to a TSV file without quotes around column names
+    write.table(filtered_data, file_path, sep="\t", row.names=FALSE, quote=FALSE)
+
+ 
     dat.seg$loc.end <- dat.seg$loc.end + args$window.size - 1
     
     cn.plot <- plot_ly(dat.cn[dat.cn$mask,], x =~index, y =~ratio, text =~range, name = s,
@@ -1945,11 +2054,17 @@ get.html.list <- function(){
     cat('  ... at pedigree \n')
     
     html.list <- add.main.header(html.list, "Family tree")
-    
-    write.pedigree(paste0(args$out.bs, 'ped.tree.png'))
-    x <- htmltools::img(src = image_uri(paste0(args$out.bs, 'ped.tree.png')),
+    # Ensure the output_directory path ends with a "/"
+    output_directory <- args$out.dir
+    if (substr(output_directory, nchar(output_directory), nchar(output_directory)) != "/") {
+    output_directory <- paste0(output_directory, "/")
+    }
+    # Define the path for the pedigree file
+    pedigree_path <- paste0(output_directory, 'ped.tree.png')
+    # Create the pedigree tree and save it directly to the output directory
+    write.pedigree(pedigree_path)
+    x <- htmltools::img(src = image_uri(pedigree_path),
                         style = paste0('height:',5*100,'px;width:',log(length(args$sample.ids)) * 4 * 100,'px'))
-    invisible(file.remove(paste0(args$out.bs, 'ped.tree.png')))
     html.list <- append.list(html.list, x)
   }
   
@@ -2294,6 +2409,7 @@ suppressMessages(library('htmltools'))
 suppressMessages(library('GenomicRanges'))
 suppressMessages(library('DNAcopy'))
 suppressMessages(library('knitr'))
+suppressMessages(library('dplyr'))
 
 # -----
 # Parameters
@@ -2527,6 +2643,11 @@ output_format <- args$BAF.outputformat
 if (output_format == "BOTH"){
   output_format <- c("tsv", "bed")
 }
+
+# Create subdirectory for BAF files
+baf_dir <- file.path(out_dir, "BAF_files")
+dir.create(baf_dir, showWarnings = FALSE)
+
 # Read VCF data from a CSV file
 vcf_data <- read.csv(vcf_file, stringsAsFactors = FALSE)
   
@@ -2566,7 +2687,7 @@ for (sample_id in sample_ids) {
 
   # Write the individual sample to a TSV and/or bed file 
   for (format in output_format) {
-    individual_filename <- file.path(out_dir, paste0(sample_id, "_BAF.", format))
+    individual_filename <- file.path(baf_dir, paste0(sample_id, "_BAF.", format))
     fwrite(baf_entries, file = individual_filename, sep = "\t", quote = FALSE)
   }
   
@@ -2577,7 +2698,16 @@ final_baf <- rbindlist(all_samples_baf_data)
 
 for (format in output_format){
   base_name <- sub("\\.csv$", paste0("_BAF.", format), basename(vcf_file))
-  full_path <- file.path(out_dir, base_name)
+  full_path <- file.path(baf_dir, base_name)
   fwrite(final_baf, file = full_path, sep = "\t", quote = FALSE)
   cat("File created at:", full_path, "\n")
+}
+
+# -----
+# Write CNV to CSV file even if the visualization hasn't run
+# -----
+if (!args$run.visualization) {
+  invisible(capture.output({
+    get.cn.fig()
+  }))
 }
