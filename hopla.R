@@ -1073,6 +1073,8 @@ get.haplo.profiles <- function(){
       breaks[[s]]$f1cols <- get.breaks(f1, x)$colors
       breaks[[s]]$f2 <- c(x[1], get.breaks(f2, x)$breakpoints, x[length(x)])
       breaks[[s]]$f2cols <- get.breaks(f2, x)$colors
+      breaks_f1 <- get.breaks(f1, x)
+      breaks_f2 <- get.breaks(f2, x)
       symbol <- rep(1, length(c1) * 2)
       symbol[c(c1,c2)] <- 0
       symbol[c(g1,g2) == 'NA'] <- 101 ## will show nothing
@@ -1682,6 +1684,24 @@ get.men.err.fig <- function(child, father, mother, n.rel){
     x$mot[as.numeric(names(hits))] <- sapply(hits, function(hit) length(which(man.err.frame$mot[hit] == 2)))
   }
   
+  output_directory <- args$out.dir
+  if (substr(output_directory, nchar(output_directory), nchar(output_directory)) != "/") {
+    output_directory <- paste0(output_directory, "/")
+  }
+  new_subfolder <- paste0(output_directory, "Mendelian_error_data/")
+  if (!dir.exists(new_subfolder)) {
+    dir.create(new_subfolder, recursive = TRUE)
+  }
+  # Save data frames to CSV
+  #man.err.frame_path <- paste0(new_subfolder, "man_err_frame.csv")
+  #write.csv(man.err.frame, file = man.err.frame_path, row.names = FALSE)
+  #man.err.frame_gr_path <- paste0(new_subfolder, "man_err_frame_gr.csv")
+  #write.csv(as.data.frame(man.err.frame.gr), file = man.err.frame_gr_path, row.names = FALSE)
+  x_subset <- x[, c("seqnames", "start", "end", "trio", "fat", "mot")]
+  windowed_errors_path <- paste0(new_subfolder, "windowed_errors.csv")
+  write.csv(x_subset, file = windowed_errors_path, row.names = FALSE)
+
+
   me.plot <- plot_ly(x, x =~index, y = 0, height = 210 * n.rel,
                      line = list(color = colors[1], width = 0),
                      name = 'trio errors', type = 'scatter', mode = 'lines', hoverinfo = 'none')
@@ -1879,6 +1899,29 @@ get.pm <- function(child, father, mother){
   vcf.child$col[which(vcf.child$tracks %in% 4:5)] <- colors[1]
   vcf.child$col[which(vcf.child$tracks %in% 1:2)] <- colors[2]
   
+
+  # Extract relevant columns
+  child_data <- data.frame(
+    chromosome = vcf.child$CHROM,
+    POS = vcf.child$POS,
+    GT = vcf.child$GT,
+    tracks = vcf.child$tracks
+  )
+  # Remove rows where 'tracks' is NA
+  child_data <- child_data[!is.na(child_data$tracks), ]
+  # Define the output directory and subfolder
+  output_directory <- args$out.dir
+  if (substr(output_directory, nchar(output_directory), nchar(output_directory)) != "/") {
+    output_directory <- paste0(output_directory, "/")
+  }
+  new_subfolder <- paste0(output_directory, "Parent_mapping_data/")
+  if (!dir.exists(new_subfolder)) {
+    dir.create(new_subfolder, recursive = TRUE)
+  }
+  # Save the child_data data frame to a CSV file
+  tracks_csv_path <- paste0(new_subfolder, "child_tracks.csv")
+  write.csv(child_data, file = tracks_csv_path, row.names = FALSE)
+
   chr.lengths <- sapply(chrs, function(x) max(vcfs.filtered[[1]]$POS[vcfs.filtered[[1]]$CHROM == x]))
   upds <- list()
   for (chr in chrs){
