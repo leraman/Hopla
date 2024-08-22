@@ -1103,12 +1103,34 @@ get.haplo.profiles <- function(){
       breaks_f1_result <- find_breaks(x, breakpoints_f1)
       breaks_f2_result <- find_breaks(x, breakpoints_f2)
 
-      haplo.frame.sub <- data.frame(c(x, x), c(rep(y1, length(x)), rep(y2, length(x))),
-                                    c(id1, id2), c(letter.colors[f1],  letter.colors[f2]), symbol,
-                                    stringsAsFactors = F, c(rep(which(args$samples.no.u == s) * 2 - 1, length(x)),
-                                                            rep(which(args$samples.no.u == s) * 2, length(x))), sample_id = rep(s, length(x) * 2), chromosome = rep(c, length(x) * 2), break_start = c(breaks_f1_result$break_start, breaks_f2_result$break_start),
-                                                            break_end = c(breaks_f1_result$break_end, breaks_f2_result$break_end)
-    )
+      if (args$run.visualization) {
+        haplo.frame.sub <- data.frame(c(x, x), 
+                                c(rep(y1, length(x)), rep(y2, length(x))),
+                                c(id1, id2), 
+                                c(letter.colors[f1], letter.colors[f2]), 
+                                symbol, # Only included when visualization is run
+                                stringsAsFactors = F, 
+                                c(rep(which(args$samples.no.u == s) * 2 - 1, length(x)),
+                                  rep(which(args$samples.no.u == s) * 2, length(x))), 
+                                sample_id = rep(s, length(x) * 2), 
+                                chromosome = rep(c, length(x) * 2), 
+                                break_start = c(breaks_f1_result$break_start, breaks_f2_result$break_start),
+                                break_end = c(breaks_f1_result$break_end, breaks_f2_result$break_end)
+      ) 
+    } else {
+        haplo.frame.sub <- data.frame(c(x, x), 
+                                c(rep(y1, length(x)), rep(y2, length(x))),
+                                c(id1, id2), 
+                                c(letter.colors[f1], letter.colors[f2]), 
+                                stringsAsFactors = F, 
+                                c(rep(which(args$samples.no.u == s) * 2 - 1, length(x)),
+                                  rep(which(args$samples.no.u == s) * 2, length(x))), 
+                                sample_id = rep(s, length(x) * 2), 
+                                chromosome = rep(c, length(x) * 2), 
+                                break_start = c(breaks_f1_result$break_start, breaks_f2_result$break_start),
+                                break_end = c(breaks_f1_result$break_end, breaks_f2_result$break_end)
+        )
+      }
       annot.list[[which(args$samples.no.u == s)]] <- list(x = 1, y = y1 + 1,
                                                           text = args$samples.out[args$sample.ids == s], showarrow = F)
       if (all(c(g1, g2) == 'NA')) next
@@ -1116,9 +1138,14 @@ get.haplo.profiles <- function(){
     }
     
     ## raw data points
-    
-    colnames(haplo.frame) <- c('x', 'y', 'id', 'col', 'symbol', 'name','sample_id', 'chromosome', 'break_start', 'break_end')
+    if (args$run.visualization) {
+        colnames(haplo.frame) <- c('x', 'y', 'id', 'col', 'symbol', 'name','sample_id', 'chromosome', 'break_start', 'break_end')
+    } else {
+        colnames(haplo.frame) <- c('x', 'y', 'id', 'col', 'name','sample_id', 'chromosome', 'break_start', 'break_end')
+        
+    }    
     all_haplo_frames <- rbind(all_haplo_frames, haplo.frame)  # Combine with the main data frame
+    if (args$run.visualization) {
     haplo.frame.for.plotly <- haplo.frame
     if (args$keep.chromosomes.only) haplo.frame.for.plotly <- filter.region(haplo.frame, c, whole.chromosome = T)
     if (args$keep.regions.only) haplo.frame.for.plotly <- filter.region(haplo.frame, c)
@@ -1165,6 +1192,8 @@ get.haplo.profiles <- function(){
     }
     
     haplo.profiles[[c]] <- p
+  }
+
   }
   output_directory <- args$out.dir
   if (substr(output_directory, nchar(output_directory), nchar(output_directory)) != "/") {
@@ -1542,7 +1571,22 @@ get.cn.fig <- function(){
     
     # Bind the details to the original data frame
     dat.cn_copy <- cbind(dat.cn_copy, details_df)
-    
+
+    # Add a new column 'threshold' based on the ratio values
+    dat.cn_copy$threshold <- ifelse(dat.cn_copy$ratio < -1.0, 
+                                "ratio<-1.0 (loss of 1 copy or more)",
+                         ifelse(dat.cn_copy$ratio >= -1.0 & dat.cn_copy$ratio < -0.3, 
+                                "-1.0< ratio<-0.3 (sign. loss)", 
+                         ifelse(dat.cn_copy$ratio >= -0.3 & dat.cn_copy$ratio <= 0.3, 
+                                "-0.3<=ratio<=0.3 (+/- normal)", 
+                         ifelse(dat.cn_copy$ratio > 0.3 & dat.cn_copy$ratio < 0.585, 
+                                "0.3<ratio<0.585 (sign. gain)", 
+                         ifelse(dat.cn_copy$ratio >= 0.585 & dat.cn_copy$ratio < 1.0, 
+                                "0.585<=ratio<1.0 (gain of at least 1 copy)", 
+                         ifelse(dat.cn_copy$ratio >= 1.0, 
+                                "ratio>= 1.0 (copies at least doubled)", 
+                                NA))))))
+                                
     # Filter out rows with NA values in seg.mean
     filtered_data <- dat.cn_copy %>%
       filter(!is.na(seg.mean))
@@ -1693,12 +1737,12 @@ get.men.err.fig <- function(child, father, mother, n.rel){
     dir.create(new_subfolder, recursive = TRUE)
   }
   # Save data frames to CSV
-  #man.err.frame_path <- paste0(new_subfolder, "man_err_frame.csv")
-  #write.csv(man.err.frame, file = man.err.frame_path, row.names = FALSE)
+  man.err.frame_path <- paste0(new_subfolder, "man_err_frame", child,".csv")
+  write.csv(man.err.frame, file = man.err.frame_path, row.names = FALSE)
   #man.err.frame_gr_path <- paste0(new_subfolder, "man_err_frame_gr.csv")
   #write.csv(as.data.frame(man.err.frame.gr), file = man.err.frame_gr_path, row.names = FALSE)
   x_subset <- x[, c("seqnames", "start", "end", "trio", "fat", "mot")]
-  windowed_errors_path <- paste0(new_subfolder, "windowed_errors.csv")
+  windowed_errors_path <- paste0(new_subfolder, "windowed_errors", child,".csv")
   write.csv(x_subset, file = windowed_errors_path, row.names = FALSE)
 
 
@@ -2749,8 +2793,75 @@ for (format in output_format){
 # -----
 # Write CNV to CSV file even if the visualization hasn't run
 # -----
+
+  ## Copy Number Variations 
+
 if (!args$run.visualization) {
   invisible(capture.output({
     get.cn.fig()
   }))
+}
+
+   ## Mendelian errors
+if (!args$run.visualization) {
+  invisible(capture.output({
+  n.rel <- 0
+  if (length(args$samples.no.u) > 1){
+    for (child in args$samples.no.u){
+      father <- args$father.ids[args$sample.ids == child]
+      mother <- args$mother.ids[args$sample.ids == child]
+      
+      has.father <- !is.na(father) & !(father %in% args$samples.u)
+      has.mother <- !is.na(mother) & !(mother %in% args$samples.u)
+      
+      if (has.mother | has.father) n.rel <- n.rel + 1
+     
+    }
+  }
+  if (length(args$sample.ids) > 1){
+    
+    for (s in args$samples.no.u){
+      father <- args$father.ids[args$sample.ids == s]
+      mother <- args$mother.ids[args$sample.ids == s]
+      
+      has.father <- !is.na(father) & !(father %in% args$samples.u)
+      has.mother <- !is.na(mother) & !(mother %in% args$samples.u)
+      
+      if (length(father[has.father]) | length(mother[has.mother])){
+        get.men.err.fig(s, father[has.father], mother[has.mother], n.rel)
+      }
+    }
+
+  }
+      
+  }))
+}
+
+
+    ## Parent mapping
+if (!args$run.visualization) {
+  invisible(capture.output({
+
+  if (length(args$sample.ids) > 1){
+    for (s in args$samples.no.u){
+      father <- args$father.ids[args$sample.ids == s]
+      mother <- args$mother.ids[args$sample.ids == s]
+      
+      has.father <- !is.na(father) & !(father %in% args$samples.u)
+      has.mother <- !is.na(mother) & !(mother %in% args$samples.u)
+      
+      if (length(father[has.father]) | length(mother[has.mother])){
+        get.pm(s, father[has.father], mother[has.mother])
+      }
+    }
+  }
+  }))
+}
+
+    ## Haplotyping
+
+if (!args$run.visualization) {
+invisible(capture.output({
+    get.haplo.profiles()
+    }))
 }
