@@ -2865,3 +2865,39 @@ invisible(capture.output({
     get.haplo.profiles()
     }))
 }
+
+# -----
+# Save Region of Interest
+# -----
+ 
+# Function to parse the regions and extract start and end positions
+parse_regions_to_csv <- function(regions_list) {
+  # Initialize empty vectors for chromosomes, start positions, and end positions
+  chromosomes <- c()
+  positions <- c()
+  # Process each region
+  for (region in regions_list) {
+    # Split by colon and hyphen
+    parts <- unlist(strsplit(region, "[:-]"))
+    chromosome <- parts[1]
+    start_pos <- as.numeric(parts[2])
+    end_pos <- as.numeric(parts[3])
+    # Append the data to vectors
+    chromosomes <- c(chromosomes, chromosome)
+    positions <- c(positions, start_pos)
+    chromosomes <- c(chromosomes, chromosome)
+    positions <- c(positions, end_pos)
+  }
+  # Create a data frame
+  data.frame(
+    CHROM = chromosomes,
+    POS = positions,
+    stringsAsFactors = FALSE
+  )
+}
+ 
+# Parse the regions and convert to a data frame
+positions_df <- parse_regions_to_csv(args$regions)
+ 
+# Write the data frame to a CSV file
+write.csv(positions_df, file = "regions_data.csv", row.names = FALSE)
