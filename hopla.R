@@ -1590,7 +1590,21 @@ get.cn.fig <- function(){
     # Filter out rows with NA values in seg.mean
     filtered_data <- dat.cn_copy %>%
       filter(!is.na(seg.mean))
-    
+    # Add a new column 'seg_threshold' based on the segmented mean values
+    filtered_data$seg_threshold <- ifelse(filtered_data$seg.mean < -1.0, 
+                                "ratio<-1.0 (loss of 1 copy or more)",
+                         ifelse(filtered_data$seg.mean >= -1.0 & filtered_data$seg.mean < -0.3, 
+                                "-1.0< ratio<-0.3 (sign. loss)", 
+                         ifelse(filtered_data$seg.mean >= -0.3 & filtered_data$seg.mean <= 0.3, 
+                                "-0.3<=ratio<=0.3 (+/- normal)", 
+                         ifelse(filtered_data$seg.mean > 0.3 & filtered_data$seg.mean < 0.585, 
+                                "0.3<ratio<0.585 (sign. gain)", 
+                         ifelse(filtered_data$seg.mean >= 0.585 & filtered_data$seg.mean < 1.0, 
+                                "0.585<=ratio<1.0 (gain of at least 1 copy)", 
+                         ifelse(filtered_data$seg.mean >= 1.0, 
+                                "ratio>= 1.0 (copies at least doubled)", 
+                                NA))))))
+
     # Define the file path for the output TSV
     file_path <- paste0(new_subfolder, "output_combined_CNV_", sample_id, ".tsv")
     
