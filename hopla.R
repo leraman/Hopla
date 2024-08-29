@@ -324,9 +324,9 @@ load.samples <- function(args){
     vcf.B <- suppressWarnings(as.data.frame(do.call(rbind, strsplit(as.character(vcf.B.tmp[[sample]]), ':')))[,1:length(cnames)])
     colnames(vcf.B) <- cnames
     
-    vcf.B <- vcf.B[,c('GT', 'AD', 'DP')]
+    vcf.B <- vcf.B[,c('GT', 'AD', 'DP', 'GQ', 'PL')]
     vcf.B$DP <- suppressWarnings(as.numeric(as.character(vcf.B$DP)))
-    for (x in c('GT', 'AD')) vcf.B[[x]] <- as.character(vcf.B[[x]])
+    for (x in c('GT', 'AD', 'PL')) vcf.B[[x]] <- as.character(vcf.B[[x]])
     
     vcf.B$GT[vcf.B$GT == '0' & vcf.A$CHROM == 'chrX'] <- '0/0'
     vcf.B$GT[vcf.B$GT == '1' & vcf.A$CHROM == 'chrX'] <- '1/1'
@@ -1443,7 +1443,8 @@ get.cn.fig <- function(){
   
   cluster.max.len.between.CpG = 200
   clusters <- matrix(nrow = 0, ncol = 4)
-  
+  combined_data <- data.frame()  # Create an empty data frame to store the combined data
+
   for (chr in chrs){
     pos <- vcfs[[1]]$POS[vcfs[[1]]$CHROM == chr]
     
@@ -1611,7 +1612,9 @@ get.cn.fig <- function(){
     # Write the filtered data to a TSV file without quotes around column names
     write.table(filtered_data, file_path, sep="\t", row.names=FALSE, quote=FALSE)
 
- 
+    # Append the filtered_data to the combined_data data frame
+    combined_data <- rbind(combined_data, filtered_data)
+
     dat.seg$loc.end <- dat.seg$loc.end + args$window.size - 1
     
     cn.plot <- plot_ly(dat.cn[dat.cn$mask,], x =~index, y =~ratio, text =~range, name = s,
@@ -1655,6 +1658,9 @@ get.cn.fig <- function(){
     
     copy.number.plots[[s]] <- cn.plot
   }
+    # Write the combined data to a single TSV file
+  combined_file_path <- paste0(output_directory, "CNV_data/","combined_filtered_CNV_data.tsv")
+  write.table(combined_data, combined_file_path, sep="\t", row.names=FALSE, quote=FALSE)
   return(copy.number.plots)
 }
 
@@ -2915,3 +2921,266 @@ positions_df <- parse_regions_to_csv(args$regions)
  
 # Write the data frame to a CSV file
 write.csv(positions_df, file = "regions_data.csv", row.names = FALSE)
+
+# -----
+# Write the variant info for summary plots
+# -----
+
+
+# Create subdirectory for variant file
+variant_dir <- file.path(out_dir, "Variant_files/")
+dir.create(variant_dir, showWarnings = FALSE)
+# Read VCF data from a CSV file
+vcf_data <- fread(vcf_file, stringsAsFactors = FALSE)
+
+# Function to calculate the number of variants per chromosome based on 2% intervals
+calculate_variant_bins <- function(data, sample_prefix, chromosome_col = "CHROM", pos_col = "POS", af_col_suffix = "AF", GQ_col_suffix = "GQ",DP_col_suffix = "DP", num_bins = 50) {
+  # Extract the columns for the specific sample
+  af_col <- paste0(sample_prefix, ".", af_col_suffix)
+  GQ_col <- paste0(sample_prefix, ".", GQ_col_suffix)
+  DP_col <- paste0(sample_prefix, ".", DP_col_suffix)
+  chromosome_col <- paste0(sample_prefix, ".", chromosome_col)
+  pos_col <- paste0(sample_prefix, ".", pos_col)
+  chrom_data <- data[, c(chromosome_col, pos_col, af_col, GQ_col, DP_col), with = FALSE]
+  
+  # Rename columns for easier manipulation
+  setnames(chrom_data, c(chromosome_col, pos_col, af_col, GQ_col, DP_col), c("CHROM", "POS", "AF", "GQ", "DP"))
+  
+  # Convert AF to numeric for analysis (suppress warning about NAs introduced by coercion)
+  chrom_data$AF <- suppressWarnings(as.numeric(chrom_data$AF))
+
+  # Convert GQ to numeric for analysis (suppress warning about NAs introduced by coercion)
+  chrom_data$GQ <- suppressWarnings(as.numeric(chrom_data$GQ))
+
+  # Convert DP to numeric for analysis (suppress warning about NAs introduced by coercion)
+  chrom_data$DP <- suppressWarnings(as.numeric(chrom_data$DP))
+
+  # Remove rows with missing or NA AF values
+  chrom_data <- chrom_data[!is.na(AF)]
+  # Remove rows with missing or NA AF values
+  chrom_data <- chrom_data[!is.na(GQ)]
+  # Remove rows with missing or NA AF values
+  chrom_data <- chrom_data[!is.na(DP)]
+  
+  # Get the unique chromosomes
+  unique_chromosomes <- unique(chrom_data$CHROM)
+  
+  # Create an empty list to store results for each chromosome
+  result_list <- list()
+  
+  ### Step 1: Per-chromosome calculations ###
+  
+  for (chrom in unique_chromosomes) {
+    # Filter data for the current chromosome
+    chrom_specific_data <- chrom_data[CHROM == chrom]
+    
+    # Determine the min and max positions
+    min_pos <- 5218918
+    min_pos <- as.numeric(min_pos)
+    max_pos <- max(chrom_specific_data$POS) - min_pos
+    
+    # Create bins for AF (2% intervals)
+    af_bins <- cut(chrom_specific_data$AF, breaks = seq(0, 1, by = 0.02), include.lowest = TRUE, right = FALSE)
+    # Create bins for GQ (per 2 intervals)
+    GQ_bins <- cut(chrom_specific_data$GQ, breaks = seq(0, 100, by = 2), include.lowest = TRUE, right = FALSE)
+    
+    
+    # Find the maximum value in the DP column
+    max_DP <- max(chrom_specific_data$DP, na.rm = TRUE)
+    # Calculate the bin width (increment) by dividing max DP by 50
+    bin_width <- max_DP / 50
+    
+    # Create dynamic bins using cut, with 50 bins
+    DP_bins <- cut(chrom_specific_data$DP, 
+                   breaks = seq(0, max_DP, by = bin_width), 
+                   include.lowest = TRUE, 
+                   right = FALSE)
+    # Extract the upper bounds of the AF bins and convert to percentages
+    af_bin_upper <- seq(0.02, 1, by = 0.02) * 100
+    af_bin_labels <- paste0(af_bin_upper, "%")
+    # Extract the upper bounds of the QC bins 
+    GQ_bin_upper <- seq(2, 100, by = 2)
+    GQ_bin_labels <- paste0(GQ_bin_upper)
+    # Extract the upper bounds of the DP bins 
+    DP_bin_breaks <- seq(0, max_DP, by = bin_width)
+    # Extract the upper bounds (remove the first element since it's the lower bound)
+    DP_bin_upper <- DP_bin_breaks[-1]
+    DP_bin_labels <- paste0(DP_bin_upper)
+    
+    
+    # Calculate number of variants in each AF bin
+    af_bin_counts <- table(af_bins)
+    # Calculate number of variants in each GQ bin
+    GQ_bin_counts <- table(GQ_bins)
+    # Calculate number of variants in each DP bin
+    DP_bin_counts <- table(DP_bins)
+    
+    # Apply logarithmic transformation to variant counts
+    log_af_bin_counts <- log10(as.integer(af_bin_counts) + 1)  # +1 to avoid log(0)
+    # Apply logarithmic transformation to variant counts
+    log_GQ_bin_counts <- log10(as.integer(GQ_bin_counts) + 1)  # +1 to avoid log(0)
+    # Apply logarithmic transformation to variant counts
+    log_DP_bin_counts <- log10(as.integer(DP_bin_counts) + 1)  # +1 to avoid log(0)
+    
+    # Ensure that the number of AF bins and position bins match
+    if (length(log_af_bin_counts) < num_bins) {
+      af_bin_labels <- af_bin_labels[1:length(log_af_bin_counts)]  # Ensure AF bin labels match
+    }
+    
+    # Ensure that the number of AF bins and position bins match
+    if (length(log_GQ_bin_counts) < num_bins) {
+      GQ_bin_labels <- GQ_bin_labels[1:length(log_GQ_bin_counts)]  # Ensure GQ bin labels match
+    }
+    # Ensure that the number of AF bins and position bins match
+    if (length(log_DP_bin_counts) < num_bins) {
+      DP_bin_labels <- DP_bin_labels[1:length(log_DP_bin_counts)]  # Ensure GQ bin labels match
+    }
+    
+    # Generate 50 evenly spaced points along the chromosome length
+    midpoints <- seq(min_pos, max_pos, length.out = num_bins)
+    
+    # Combine AF bins and midpoints
+    chrom_result <- data.table(
+      Chromosome = chrom,
+      AF_bin = af_bin_labels,  
+      Amount_log_AF = log_af_bin_counts,
+      Amount_AF = as.integer(af_bin_counts),
+      GQ_bin = GQ_bin_labels,  
+      Amount_log_GQ = log_GQ_bin_counts,
+      Amount_GQ = as.integer(GQ_bin_counts),
+      DP_bin = DP_bin_labels,  
+      Amount_log_DP = log_DP_bin_counts,
+      Amount_DP = as.integer(DP_bin_counts),
+      Midpoint = midpoints,  
+      Part = "chrom"
+    )
+    
+    # Append to the result list
+    result_list[[chrom]] <- chrom_result
+  }
+  
+  ### Step 2: Genome-wide calculations ###
+  
+  # Get the starting position from the first row of chromosome 1
+  first_pos_chr1 <- chrom_data[CHROM == "chr1", .(POS)][1]$POS
+  # Get the length of each chromosome and the cumulative positions
+  chrom_lengths <- chrom_data[, .(Chromosome_Length = max(POS)), by = CHROM]
+  chrom_lengths[, Cumulative_Start := cumsum(c(0, Chromosome_Length[-.N]))] # Cumulative start positions
+  chrom_lengths[, Cumulative_End := Cumulative_Start + Chromosome_Length + first_pos_chr1]  # Cumulative end positions
+  
+  # Total length of the genome
+  total_genome_length <- sum(chrom_lengths$Chromosome_Length)
+  
+  # Create bins for the whole genome (2% intervals for AF)
+  af_bins <- cut(chrom_data$AF, breaks = seq(0, 1, by = 0.02), include.lowest = TRUE, right = FALSE)
+  af_bin_counts <- table(af_bins)
+  # Apply logarithmic transformation to variant counts
+  log_af_bin_counts <- log10(as.integer(af_bin_counts) + 1)  # +1 to avoid log(0)
+  
+  # Create bins for the whole genome (2% intervals for GQ)
+  GQ_bins <- cut(chrom_data$GQ, breaks = seq(0, 100, by = 2), include.lowest = TRUE, right = FALSE)
+  GQ_bin_counts <- table(GQ_bins)
+  # Apply logarithmic transformation to variant counts
+  log_GQ_bin_counts <- log10(as.integer(GQ_bin_counts) + 1)  # +1 to avoid log(0)
+  
+  # Find the maximum value in the DP column
+  max_DP <- max(chrom_specific_data$DP, na.rm = TRUE)
+  # Calculate the bin width (increment) by dividing max DP by 50
+  bin_width <- max_DP / 50
+  
+  # Create dynamic bins using cut, with 50 bins
+  DP_bins <- cut(chrom_specific_data$DP, 
+                 breaks = seq(0, max_DP, by = bin_width), 
+                 include.lowest = TRUE, 
+                 right = FALSE)
+  
+  DP_bin_counts <- table(DP_bins)
+  
+  # Apply logarithmic transformation to variant counts
+  log_DP_bin_counts <- log10(as.integer(DP_bin_counts) + 1)  # +1 to avoid log(0)
+  
+  # Ensure the number of genome-wide position bins matches the AF bins
+  if (length(log_af_bin_counts) < num_bins) {
+    af_bin_labels <- af_bin_labels[1:length(log_af_bin_counts)]
+  }
+  
+  # Ensure the number of genome-wide position bins matches the GQ bins
+  if (length(log_GQ_bin_counts) < num_bins) {
+    GQ_bin_labels <- GQ_bin_labels[1:length(log_GQ_bin_counts)]
+  }
+  # Ensure the number of genome-wide position bins matches the DP bins
+  if (length(log_DP_bin_counts) < num_bins) {
+    DP_bin_labels <- DP_bin_labels[1:length(log_DP_bin_counts)]  # Ensure DP bin labels match
+  }
+  # Get the starting position from the first row of chromosome 1
+  first_pos_chr1 <- chrom_data[CHROM == "chr1", .(POS)][1]$POS
+  print(first_pos_chr1)
+  # Generate 50 evenly spaced points along the genome length
+  genome_midpoints <- seq(first_pos_chr1, first_pos_chr1 + total_genome_length, length.out = num_bins)
+  
+  # Function to map genome-wide midpoints to chromosomes
+  map_genome_midpoints_to_chromosomes <- function(midpoints, chrom_lengths) {
+    mapped_result <- data.table(Midpoint = numeric(), Chromosome = character(), Adjusted_Midpoint = numeric())
+    for (midpoint in midpoints) {
+      for (i in 1:nrow(chrom_lengths)) {
+        chrom <- chrom_lengths$CHROM[i]
+        chrom_start <- chrom_lengths$Cumulative_Start[i]
+        chrom_end <- chrom_lengths$Cumulative_End[i]
+        
+        # Check if the midpoint falls within the chromosome range
+        if (midpoint >= chrom_start && midpoint <= chrom_end) {
+          adjusted_midpoint <- midpoint - chrom_start  # Adjust the midpoint to be relative to the chromosome
+          mapped_result <- rbind(mapped_result, data.table(Midpoint = midpoint, Chromosome = chrom, Adjusted_Midpoint = adjusted_midpoint))
+          break
+        }
+      }
+    }
+    return(mapped_result)
+  }
+  
+  # Map genome-wide midpoints to specific chromosomes
+  mapped_chromosomes <- map_genome_midpoints_to_chromosomes(genome_midpoints, chrom_lengths)
+  
+  # Combine bins and mapped midpoints for the genome
+  genome_result <- data.table(
+    Chromosome = mapped_chromosomes$Chromosome,
+    AF_bin = af_bin_labels,
+    Amount_log_AF = log_af_bin_counts,
+    Amount_AF = as.integer(af_bin_counts),
+    GQ_bin = GQ_bin_labels,  
+    Amount_log_GQ = log_GQ_bin_counts,
+    Amount_GQ = as.integer(GQ_bin_counts),
+    DP_bin = DP_bin_labels,  
+    Amount_log_DP = log_DP_bin_counts,
+    Amount_DP = as.integer(DP_bin_counts),
+    Midpoint = mapped_chromosomes$Adjusted_Midpoint,  
+    Part = "genome"
+  )
+  
+  # Append genome result to the result list
+  result_list[["Genome"]] <- genome_result
+  
+  ### Step 3: Combine results and return ###
+  
+  # Combine the results for all chromosomes and genome
+  final_result <- rbindlist(result_list, use.names=TRUE)
+  
+  return(final_result)
+}
+
+# Identify all sample prefixes by extracting unique prefixes before ".AF" in column names
+sample_columns <- grep("\\.AF$", colnames(vcf_data), value = TRUE)
+sample_prefixes <- unique(sub("\\.AF$", "", sample_columns))
+
+# Loop through each sample prefix and calculate the variant bins
+for (sample_prefix in sample_prefixes) {
+  # Run the function for the specified sample
+  invisible(capture.output(variant_bin_data <- calculate_variant_bins(vcf_data, sample_prefix)))
+  
+  # Save the result to a TSV file
+  output_file <- paste0(variant_dir ,sample_prefix, "_variant_bins.tsv")
+  fwrite(variant_bin_data, output_file, sep = "\t")
+  
+  # Print a message with output file path
+  cat("Variant results saved to: ", output_file, "\n")
+}
