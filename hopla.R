@@ -1143,7 +1143,31 @@ get.haplo.profiles <- function(){
     } else {
         colnames(haplo.frame) <- c('x', 'y', 'id', 'col', 'name','sample_id', 'chromosome', 'break_start', 'break_end')
         
-    }    
+
+    }
+
+    output_directory <- args$out.dir
+
+    if (substr(output_directory, nchar(output_directory), nchar(output_directory)) != "/") {
+
+       output_directory <- paste0(output_directory, "/")
+
+    }
+
+    # Define the new subfolder path
+    new_subfolder <- paste0(output_directory, "Haplo_data/")
+
+    # Create the new subfolder if it doesn't already exist
+    if (!dir.exists(new_subfolder)) {
+     dir.create(new_subfolder, recursive = TRUE)
+     }
+
+    file_path <- paste0(new_subfolder, "output_dat_haplo_",c,".tsv")
+    # Replace "chr" in the chrom column of the copy with an empty string
+    haplo_frame_copy <- haplo.frame
+    haplo_frame_copy$chromosome <- gsub("chr", "", haplo_frame_copy$chromosome)
+    write.table(haplo_frame_copy, file_path, sep="\t", row.names=FALSE, quote=FALSE)
+
     all_haplo_frames <- rbind(all_haplo_frames, haplo.frame)  # Combine with the main data frame
     if (args$run.visualization) {
     haplo.frame.for.plotly <- haplo.frame
@@ -1207,10 +1231,9 @@ get.haplo.profiles <- function(){
     dir.create(new_subfolder, recursive = TRUE)
     }
   file_path <- paste0(new_subfolder, "output_dat_haplo.tsv")
-  
   # Replace "chr" in the chrom column of the copy with an empty string
   all_haplo_frames$chromosome <- gsub("chr", "", all_haplo_frames$chromosome)
-  
+  all_haplo_frames <- subset(all_haplo_frames, select = -c(id, name))
   write.table(all_haplo_frames, file_path, sep="\t", row.names=FALSE, quote=FALSE)
   return(haplo.profiles)
 }
@@ -1606,6 +1629,9 @@ get.cn.fig <- function(){
                                 "ratio>= 1.0 (copies at least doubled)", 
                                 NA))))))
 
+    # Add the sample_id as a new column to filtered_data
+    filtered_data$sample <- sample_id
+    
     # Define the file path for the output TSV
     file_path <- paste0(new_subfolder, "output_combined_CNV_", sample_id, ".tsv")
     
@@ -1757,12 +1783,12 @@ get.men.err.fig <- function(child, father, mother, n.rel){
     dir.create(new_subfolder, recursive = TRUE)
   }
   # Save data frames to CSV
-  man.err.frame_path <- paste0(new_subfolder, "man_err_frame", child,".csv")
+  man.err.frame_path <- paste0(new_subfolder, "man_err_frame_", child,".csv")
   write.csv(man.err.frame, file = man.err.frame_path, row.names = FALSE)
   #man.err.frame_gr_path <- paste0(new_subfolder, "man_err_frame_gr.csv")
   #write.csv(as.data.frame(man.err.frame.gr), file = man.err.frame_gr_path, row.names = FALSE)
   x_subset <- x[, c("seqnames", "start", "end", "trio", "fat", "mot")]
-  windowed_errors_path <- paste0(new_subfolder, "windowed_errors", child,".csv")
+  windowed_errors_path <- paste0(new_subfolder, "windowed_errors_", child,".csv")
   write.csv(x_subset, file = windowed_errors_path, row.names = FALSE)
 
 
@@ -1983,7 +2009,7 @@ get.pm <- function(child, father, mother){
     dir.create(new_subfolder, recursive = TRUE)
   }
   # Save the child_data data frame to a CSV file
-  tracks_csv_path <- paste0(new_subfolder, "child_tracks.csv")
+  tracks_csv_path <- paste0(new_subfolder, "pm_", child, "_tracks.csv")
   write.csv(child_data, file = tracks_csv_path, row.names = FALSE)
 
   chr.lengths <- sapply(chrs, function(x) max(vcfs.filtered[[1]]$POS[vcfs.filtered[[1]]$CHROM == x]))
@@ -2811,7 +2837,7 @@ for (format in output_format){
 }
 
 # -----
-# Write CNV to CSV file even if the visualization hasn't run
+# Write all the data files even if the visualization hasn't run
 # -----
 
   ## Copy Number Variations 
