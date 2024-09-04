@@ -2944,9 +2944,12 @@ parse_regions_to_csv <- function(regions_list) {
  
 # Parse the regions and convert to a data frame
 positions_df <- parse_regions_to_csv(args$regions)
- 
+# Create subdirectory for variant file
+Roi_dir <- file.path(out_dir, "ROI/")
+dir.create(Roi_dir, showWarnings = FALSE) 
+Roi_path <- paste0(Roi_dir,"regions_data.csv" )
 # Write the data frame to a CSV file
-write.csv(positions_df, file = "regions_data.csv", row.names = FALSE)
+write.csv(positions_df,file = Roi_path, row.names = FALSE)
 
 # -----
 # Write the variant info for summary plots
