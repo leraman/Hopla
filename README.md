@@ -155,15 +155,30 @@ hopla --settings example/example-settings.txt
 
 # Output
 
-The output are files with the specific data generated from hopla.
+The output are files with the specific data generated from hopla. They are stored in the specified output directory, in there respective folders.
 
 - **'vcfs.csv'**, Generated from vcf objects
 - **'parsed_flow.csv'**, Generated from merlin output
 - **'parsed_geno.csv'**, Generated from merlin output
 - **'map_list.csv'**, Generated from merlin output
 - **'is_corrected.csv'**, Generated from merlin output
+### B-allele frequency output
 - **'vcfs_Baf.tsv or .bed'**, TSV or Bed file with Baf information from all samples
-- **'sampele_name_Baf.tsv or .bed'**, TSV or bed files with Baf information from a specific samples
+- **'sample_name_Baf.tsv or .bed'**, TSV or bed files with Baf information from a specific samples
+### Copy number variations output
+- **'output_combined_CNV_sample_name.tsv'**, TSV files with CNV information from a specific samples, segmented data and not segmented data combined
+- **'output_dat_CNV_sample_name.tsv'**, TSV files with CNV information from a specific samples, not segmented data 
+- **'output_segmented_CNV_sample_name.tsv'**, TSV files with CNV information from a specific samples, segmented data
+### Haplotyping output
+- **'output_dat_haplo.tsv'**, TSV files with haplotyping information from all samples and chromosomes combined
+- **'output_dat_haplo_chr.tsv'**, TSV files with haplotyping information from all samples per chromosome
+### Parent mapping output
+- **'pm_sample_name_tracks.csv'**, CSV files with parent mapping information per sample
+### Mendelian error output
+- **'man_err_frame_sample_name.csv'**, CSV files with mendelian error information per sample, not windowed  
+- **'windowed_errors_sample_name.csv'**, CSV files with mendelian error information per sample, windowed per one milion basepairs
+### Variant summary output
+- **'sample_name_variant_bins.tsv'**, TSV files with variant information per sample, used to make summary plots about AF (allelic frequecny), GQ (genotype quality) and DP (read dept)
 
 When visualization is used:
 Next to the files that are generated also an interactive HTML file is generated. By mouse hovering, draging, etc., figures can be manipulated, and often, raw data can be consulted. A partial toy example is given at *example/hopla.html*.  
