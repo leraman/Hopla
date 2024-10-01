@@ -32,6 +32,9 @@ conda install -c conda-forge -c bioconda hopla
 - **`--mother.ids [string list, comma sep, no default]`** Sample IDs mothers; when not available, use NA; order matches `--sample.ids`; e.g., NA,NA,sample_B
 - **`--genders [char (M/F/NA) list, comma sep, no default]`** Sample genders; when not available, use NA, model will predict gender (see below); order matches `--sample.ids`; e.g., M,F,NA
 - **`--run.merlin [boolean, default=T]`** Whether Merlin (i.e., haplotyping) should be executed; **Note that the Merlin executables folder (i.e., path/to/merlin-1.1.2/executables) should be located in $PATH, which is automatically the case when using [Easy install](#easy-install); Merlin only runs in Linux**
+- **`--run.visualization [boolean, default=F]`** Whether visualization should be executed 
+
+- **`--BAF.outputformat [string, default=tsv]`** Specify which type of output format of BAF information is needed. (either tsv, bed or BOTH)
 - **`--cytoband.file [string, no default]`** [UCSC cytoband file](https://hgdownload.soe.ucsc.edu/downloads.html#human); when given, chromosome bands are shown on top of chromosome-wise figures; highly improves interpretability of figures; e.g., path/to/cytoband.hg38.txt
 
 ### **Important** optional variant inclusion arguments: filter 1
@@ -152,7 +155,33 @@ hopla --settings example/example-settings.txt
 
 # Output
 
-The output is an interactive HTML file. By mouse hovering, draging, etc., figures can be manipulated, and often, raw data can be consulted. A partial toy example is given at *example/hopla.html*.  
+The output are files with the specific data generated from hopla. They are stored in the specified output directory, in there respective folders.
+
+- **'vcfs.csv'**, Generated from vcf objects
+- **'parsed_flow.csv'**, Generated from merlin output
+- **'parsed_geno.csv'**, Generated from merlin output
+- **'map_list.csv'**, Generated from merlin output
+- **'is_corrected.csv'**, Generated from merlin output
+### B-allele frequency output
+- **'vcfs_Baf.tsv or .bed'**, TSV or Bed file with Baf information from all samples
+- **'sample_name_Baf.tsv or .bed'**, TSV or bed files with Baf information from a specific samples
+### Copy number variations output
+- **'output_combined_CNV_sample_name.tsv'**, TSV files with CNV information from a specific samples, segmented data and not segmented data combined
+- **'output_dat_CNV_sample_name.tsv'**, TSV files with CNV information from a specific samples, not segmented data 
+- **'output_segmented_CNV_sample_name.tsv'**, TSV files with CNV information from a specific samples, segmented data
+### Haplotyping output
+- **'output_dat_haplo.tsv'**, TSV files with haplotyping information from all samples and chromosomes combined
+- **'output_dat_haplo_chr.tsv'**, TSV files with haplotyping information from all samples per chromosome
+### Parent mapping output
+- **'pm_sample_name_tracks.csv'**, CSV files with parent mapping information per sample
+### Mendelian error output
+- **'man_err_frame_sample_name.csv'**, CSV files with mendelian error information per sample, not windowed  
+- **'windowed_errors_sample_name.csv'**, CSV files with mendelian error information per sample, windowed per one milion basepairs
+### Variant summary output
+- **'sample_name_variant_bins.tsv'**, TSV files with variant information per sample, used to make summary plots about AF (allelic frequecny), GQ (genotype quality) and DP (read dept)
+
+When visualization is used:
+Next to the files that are generated also an interactive HTML file is generated. By mouse hovering, draging, etc., figures can be manipulated, and often, raw data can be consulted. A partial toy example is given at *example/hopla.html*.  
 
 ## Family/disease information
 

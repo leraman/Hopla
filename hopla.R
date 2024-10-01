@@ -324,9 +324,9 @@ load.samples <- function(args){
     vcf.B <- suppressWarnings(as.data.frame(do.call(rbind, strsplit(as.character(vcf.B.tmp[[sample]]), ':')))[,1:length(cnames)])
     colnames(vcf.B) <- cnames
     
-    vcf.B <- vcf.B[,c('GT', 'AD', 'DP')]
+    vcf.B <- vcf.B[,c('GT', 'AD', 'DP', 'GQ', 'PL')]
     vcf.B$DP <- suppressWarnings(as.numeric(as.character(vcf.B$DP)))
-    for (x in c('GT', 'AD')) vcf.B[[x]] <- as.character(vcf.B[[x]])
+    for (x in c('GT', 'AD', 'PL')) vcf.B[[x]] <- as.character(vcf.B[[x]])
     
     vcf.B$GT[vcf.B$GT == '0' & vcf.A$CHROM == 'chrX'] <- '0/0'
     vcf.B$GT[vcf.B$GT == '1' & vcf.A$CHROM == 'chrX'] <- '1/1'
@@ -1056,6 +1056,7 @@ get.haplo.profiles <- function(){
   chr.lengths <- sapply(chrs, function(x) max(vcfs.filtered2[[1]]$POS[vcfs.filtered2[[1]]$CHROM == x]))
   
   haplo.profiles <- list()
+  all_haplo_frames <- data.frame()  
   for (c in chrs){
     haplo.frame <- matrix(nrow = 0, ncol = 9)
     annot.list <- list()
@@ -1072,6 +1073,8 @@ get.haplo.profiles <- function(){
       breaks[[s]]$f1cols <- get.breaks(f1, x)$colors
       breaks[[s]]$f2 <- c(x[1], get.breaks(f2, x)$breakpoints, x[length(x)])
       breaks[[s]]$f2cols <- get.breaks(f2, x)$colors
+      breaks_f1 <- get.breaks(f1, x)
+      breaks_f2 <- get.breaks(f2, x)
       symbol <- rep(1, length(c1) * 2)
       symbol[c(c1,c2)] <- 0
       symbol[c(g1,g2) == 'NA'] <- 101 ## will show nothing
@@ -1079,10 +1082,55 @@ get.haplo.profiles <- function(){
       id2 <- paste0(c, ':', map.list[[c]]$pos.out, ' (', g2, ')')
       y1 <- length(args$samples.no.u) * 3 - which(args$samples.no.u == s) * 3 + 1
       y2 <- length(args$samples.no.u) * 3 - which(args$samples.no.u == s) * 3
-      haplo.frame.sub <- data.frame(c(x, x), c(rep(y1, length(x)), rep(y2, length(x))),
-                                    c(id1, id2), c(letter.colors[f1],  letter.colors[f2]), symbol,
-                                    stringsAsFactors = F, c(rep(which(args$samples.no.u == s) * 2 - 1, length(x)),
-                                                            rep(which(args$samples.no.u == s) * 2, length(x))))
+
+      # Extract breakpoints
+      breakpoints_f1 <- c(x[1], breaks_f1$breakpoints, x[length(x)])
+      breakpoints_f2 <- c(x[1], breaks_f2$breakpoints, x[length(x)])
+
+      # Function to find the corresponding break start and end for each x
+      find_breaks <- function(x, breakpoints) {
+            break_start <- rep(NA, length(x))
+            break_end <- rep(NA, length(x))
+            for (i in 1:(length(breakpoints) - 1)) {
+                mask <- x >= breakpoints[i] & x <= breakpoints[i + 1]
+                break_start[mask] <- breakpoints[i]
+                break_end[mask] <- breakpoints[i + 1]
+            }
+            return(list(break_start = break_start, break_end = break_end))
+        }
+        
+      # Find break start and end for f1 and f2
+      breaks_f1_result <- find_breaks(x, breakpoints_f1)
+      breaks_f2_result <- find_breaks(x, breakpoints_f2)
+
+      if (args$run.visualization) {
+        haplo.frame.sub <- data.frame(c(x, x), 
+                                c(rep(y1, length(x)), rep(y2, length(x))),
+                                c(id1, id2), 
+                                c(letter.colors[f1], letter.colors[f2]), 
+                                symbol, # Only included when visualization is run
+                                stringsAsFactors = F, 
+                                c(rep(which(args$samples.no.u == s) * 2 - 1, length(x)),
+                                  rep(which(args$samples.no.u == s) * 2, length(x))), 
+                                sample_id = rep(s, length(x) * 2), 
+                                chromosome = rep(c, length(x) * 2), 
+                                break_start = c(breaks_f1_result$break_start, breaks_f2_result$break_start),
+                                break_end = c(breaks_f1_result$break_end, breaks_f2_result$break_end)
+      ) 
+    } else {
+        haplo.frame.sub <- data.frame(c(x, x), 
+                                c(rep(y1, length(x)), rep(y2, length(x))),
+                                c(id1, id2), 
+                                c(letter.colors[f1], letter.colors[f2]), 
+                                stringsAsFactors = F, 
+                                c(rep(which(args$samples.no.u == s) * 2 - 1, length(x)),
+                                  rep(which(args$samples.no.u == s) * 2, length(x))), 
+                                sample_id = rep(s, length(x) * 2), 
+                                chromosome = rep(c, length(x) * 2), 
+                                break_start = c(breaks_f1_result$break_start, breaks_f2_result$break_start),
+                                break_end = c(breaks_f1_result$break_end, breaks_f2_result$break_end)
+        )
+      }
       annot.list[[which(args$samples.no.u == s)]] <- list(x = 1, y = y1 + 1,
                                                           text = args$samples.out[args$sample.ids == s], showarrow = F)
       if (all(c(g1, g2) == 'NA')) next
@@ -1090,8 +1138,38 @@ get.haplo.profiles <- function(){
     }
     
     ## raw data points
-    
-    colnames(haplo.frame) <- c('x', 'y', 'id', 'col', 'symbol', 'name')
+    if (args$run.visualization) {
+        colnames(haplo.frame) <- c('x', 'y', 'id', 'col', 'symbol', 'name','sample_id', 'chromosome', 'break_start', 'break_end')
+    } else {
+        colnames(haplo.frame) <- c('x', 'y', 'id', 'col', 'name','sample_id', 'chromosome', 'break_start', 'break_end')
+        
+
+    }
+
+    output_directory <- args$out.dir
+
+    if (substr(output_directory, nchar(output_directory), nchar(output_directory)) != "/") {
+
+       output_directory <- paste0(output_directory, "/")
+
+    }
+
+    # Define the new subfolder path
+    new_subfolder <- paste0(output_directory, "Haplo_data/")
+
+    # Create the new subfolder if it doesn't already exist
+    if (!dir.exists(new_subfolder)) {
+     dir.create(new_subfolder, recursive = TRUE)
+     }
+
+    file_path <- paste0(new_subfolder, "output_dat_haplo_",c,".tsv")
+    # Replace "chr" in the chrom column of the copy with an empty string
+    haplo_frame_copy <- haplo.frame
+    haplo_frame_copy$chromosome <- gsub("chr", "", haplo_frame_copy$chromosome)
+    write.table(haplo_frame_copy, file_path, sep="\t", row.names=FALSE, quote=FALSE)
+
+    all_haplo_frames <- rbind(all_haplo_frames, haplo.frame)  # Combine with the main data frame
+    if (args$run.visualization) {
     haplo.frame.for.plotly <- haplo.frame
     if (args$keep.chromosomes.only) haplo.frame.for.plotly <- filter.region(haplo.frame, c, whole.chromosome = T)
     if (args$keep.regions.only) haplo.frame.for.plotly <- filter.region(haplo.frame, c)
@@ -1139,6 +1217,24 @@ get.haplo.profiles <- function(){
     
     haplo.profiles[[c]] <- p
   }
+
+  }
+  output_directory <- args$out.dir
+  if (substr(output_directory, nchar(output_directory), nchar(output_directory)) != "/") {
+      output_directory <- paste0(output_directory, "/")
+    }
+  # Define the new subfolder path
+  new_subfolder <- paste0(output_directory, "Haplo_data/")
+
+  # Create the new subfolder if it doesn't already exist
+  if (!dir.exists(new_subfolder)) {
+    dir.create(new_subfolder, recursive = TRUE)
+    }
+  file_path <- paste0(new_subfolder, "output_dat_haplo.tsv")
+  # Replace "chr" in the chrom column of the copy with an empty string
+  all_haplo_frames$chromosome <- gsub("chr", "", all_haplo_frames$chromosome)
+  all_haplo_frames <- subset(all_haplo_frames, select = -c(id, name))
+  write.table(all_haplo_frames, file_path, sep="\t", row.names=FALSE, quote=FALSE)
   return(haplo.profiles)
 }
 
@@ -1370,7 +1466,8 @@ get.cn.fig <- function(){
   
   cluster.max.len.between.CpG = 200
   clusters <- matrix(nrow = 0, ncol = 4)
-  
+  combined_data <- data.frame()  # Create an empty data frame to store the combined data
+
   for (chr in chrs){
     pos <- vcfs[[1]]$POS[vcfs[[1]]$CHROM == chr]
     
@@ -1436,6 +1533,30 @@ get.cn.fig <- function(){
     cd.object <- CNA(dat.cn$ratio[dat.cn$mask],
                      dat.cn$seqnames[dat.cn$mask],
                      dat.cn$start[dat.cn$mask], data.type = "logratio", sampleid = "X")
+    # Save dat.cn to a TSV file
+    sample_id <- args$sample.ids[s]
+    output_directory <- args$out.dir
+    if (substr(output_directory, nchar(output_directory), nchar(output_directory)) != "/") {
+        output_directory <- paste0(output_directory, "/")
+    }
+    # Define the new subfolder path
+    new_subfolder <- paste0(output_directory, "CNV_data/")
+
+    # Create the new subfolder if it doesn't already exist
+    if (!dir.exists(new_subfolder)) {
+    dir.create(new_subfolder, recursive = TRUE)
+    }
+    
+    # Create a copy of the dat.cn variable
+    dat.cn_copy <- dat.cn
+    
+    # Replace "chr" in the seqnames column of the copy with an empty string
+    dat.cn_copy$seqnames <- gsub("chr", "", dat.cn_copy$seqnames)
+
+    
+    file_path <- paste0(new_subfolder, "output_dat_CNV_", sample_id, ".tsv")
+    write.table(dat.cn_copy, file_path, sep="\t", row.names=FALSE, quote=FALSE)
+    
     f = file()
     sink(file=f) ## silence output
     segmented.cd.object <- invisible(segment(cd.object, verbose=1, weights = dat.cn$weight[dat.cn$mask]))
@@ -1443,6 +1564,83 @@ get.cn.fig <- function(){
     close(f)
     
     dat.seg <- segmented.cd.object$output
+    # Create a copy of the dat.seg variable
+    dat.seg_copy <- dat.seg
+    
+    # Replace "chr" in the chrom column of the copy with an empty string
+    dat.seg_copy$chrom <- gsub("chr", "", dat.seg_copy$chrom)
+    
+    file_path_seg <- paste0(new_subfolder, "output_segmented_CNV_", sample_id, ".tsv")
+    write.table(dat.seg_copy, file_path_seg, sep="\t", row.names=FALSE, quote=FALSE)
+    
+    # Function to find the correct seg.mean based on the range
+    find_seg_details <- function(seqname, start, end, dat_seg) {
+      relevant_segments <- dat_seg %>%
+        filter(chrom == seqname & loc.start <= end & loc.end >= start)
+      
+      if (nrow(relevant_segments) == 0) {
+        return(list(seg.mean = NA, seg.start = NA, seg.end = NA))
+      } else {
+        seg.mean <- mean(relevant_segments$seg.mean, na.rm = TRUE)
+        seg.start <- min(relevant_segments$loc.start)
+        seg.end <- max(relevant_segments$loc.end)
+        return(list(seg.mean = seg.mean, seg.start = seg.start, seg.end = seg.end))
+      }
+    }
+    # Apply the function to each row of dat.cn_copy and extract results
+    details <- mapply(find_seg_details, dat.cn_copy$seqnames, dat.cn_copy$start, dat.cn_copy$end, MoreArgs = list(dat_seg = dat.seg_copy), SIMPLIFY = FALSE)
+    
+    # Convert the list output to a data frame
+    details_df <- do.call(rbind, lapply(details, as.data.frame))
+    
+    # Bind the details to the original data frame
+    dat.cn_copy <- cbind(dat.cn_copy, details_df)
+
+    # Add a new column 'threshold' based on the ratio values
+    dat.cn_copy$threshold <- ifelse(dat.cn_copy$ratio < -1.0, 
+                                "ratio<-1.0 (loss of 1 copy or more)",
+                         ifelse(dat.cn_copy$ratio >= -1.0 & dat.cn_copy$ratio < -0.3, 
+                                "-1.0< ratio<-0.3 (sign. loss)", 
+                         ifelse(dat.cn_copy$ratio >= -0.3 & dat.cn_copy$ratio <= 0.3, 
+                                "-0.3<=ratio<=0.3 (+/- normal)", 
+                         ifelse(dat.cn_copy$ratio > 0.3 & dat.cn_copy$ratio < 0.585, 
+                                "0.3<ratio<0.585 (sign. gain)", 
+                         ifelse(dat.cn_copy$ratio >= 0.585 & dat.cn_copy$ratio < 1.0, 
+                                "0.585<=ratio<1.0 (gain of at least 1 copy)", 
+                         ifelse(dat.cn_copy$ratio >= 1.0, 
+                                "ratio>= 1.0 (copies at least doubled)", 
+                                NA))))))
+                                
+    # Filter out rows with NA values in seg.mean
+    filtered_data <- dat.cn_copy %>%
+      filter(!is.na(seg.mean))
+    # Add a new column 'seg_threshold' based on the segmented mean values
+    filtered_data$seg_threshold <- ifelse(filtered_data$seg.mean < -1.0, 
+                                "ratio<-1.0 (loss of 1 copy or more)",
+                         ifelse(filtered_data$seg.mean >= -1.0 & filtered_data$seg.mean < -0.3, 
+                                "-1.0< ratio<-0.3 (sign. loss)", 
+                         ifelse(filtered_data$seg.mean >= -0.3 & filtered_data$seg.mean <= 0.3, 
+                                "-0.3<=ratio<=0.3 (+/- normal)", 
+                         ifelse(filtered_data$seg.mean > 0.3 & filtered_data$seg.mean < 0.585, 
+                                "0.3<ratio<0.585 (sign. gain)", 
+                         ifelse(filtered_data$seg.mean >= 0.585 & filtered_data$seg.mean < 1.0, 
+                                "0.585<=ratio<1.0 (gain of at least 1 copy)", 
+                         ifelse(filtered_data$seg.mean >= 1.0, 
+                                "ratio>= 1.0 (copies at least doubled)", 
+                                NA))))))
+
+    # Add the sample_id as a new column to filtered_data
+    filtered_data$sample <- sample_id
+    
+    # Define the file path for the output TSV
+    file_path <- paste0(new_subfolder, "output_combined_CNV_", sample_id, ".tsv")
+    
+    # Write the filtered data to a TSV file without quotes around column names
+    write.table(filtered_data, file_path, sep="\t", row.names=FALSE, quote=FALSE)
+
+    # Append the filtered_data to the combined_data data frame
+    combined_data <- rbind(combined_data, filtered_data)
+
     dat.seg$loc.end <- dat.seg$loc.end + args$window.size - 1
     
     cn.plot <- plot_ly(dat.cn[dat.cn$mask,], x =~index, y =~ratio, text =~range, name = s,
@@ -1486,6 +1684,9 @@ get.cn.fig <- function(){
     
     copy.number.plots[[s]] <- cn.plot
   }
+    # Write the combined data to a single TSV file
+  combined_file_path <- paste0(output_directory, "CNV_data/","combined_filtered_CNV_data.tsv")
+  write.table(combined_data, combined_file_path, sep="\t", row.names=FALSE, quote=FALSE)
   return(copy.number.plots)
 }
 
@@ -1573,6 +1774,24 @@ get.men.err.fig <- function(child, father, mother, n.rel){
     x$mot[as.numeric(names(hits))] <- sapply(hits, function(hit) length(which(man.err.frame$mot[hit] == 2)))
   }
   
+  output_directory <- args$out.dir
+  if (substr(output_directory, nchar(output_directory), nchar(output_directory)) != "/") {
+    output_directory <- paste0(output_directory, "/")
+  }
+  new_subfolder <- paste0(output_directory, "Mendelian_error_data/")
+  if (!dir.exists(new_subfolder)) {
+    dir.create(new_subfolder, recursive = TRUE)
+  }
+  # Save data frames to CSV
+  man.err.frame_path <- paste0(new_subfolder, "man_err_frame_", child,".csv")
+  write.csv(man.err.frame, file = man.err.frame_path, row.names = FALSE)
+  #man.err.frame_gr_path <- paste0(new_subfolder, "man_err_frame_gr.csv")
+  #write.csv(as.data.frame(man.err.frame.gr), file = man.err.frame_gr_path, row.names = FALSE)
+  x_subset <- x[, c("seqnames", "start", "end", "trio", "fat", "mot")]
+  windowed_errors_path <- paste0(new_subfolder, "windowed_errors_", child,".csv")
+  write.csv(x_subset, file = windowed_errors_path, row.names = FALSE)
+
+
   me.plot <- plot_ly(x, x =~index, y = 0, height = 210 * n.rel,
                      line = list(color = colors[1], width = 0),
                      name = 'trio errors', type = 'scatter', mode = 'lines', hoverinfo = 'none')
@@ -1770,6 +1989,29 @@ get.pm <- function(child, father, mother){
   vcf.child$col[which(vcf.child$tracks %in% 4:5)] <- colors[1]
   vcf.child$col[which(vcf.child$tracks %in% 1:2)] <- colors[2]
   
+
+  # Extract relevant columns
+  child_data <- data.frame(
+    chromosome = vcf.child$CHROM,
+    POS = vcf.child$POS,
+    GT = vcf.child$GT,
+    tracks = vcf.child$tracks
+  )
+  # Remove rows where 'tracks' is NA
+  child_data <- child_data[!is.na(child_data$tracks), ]
+  # Define the output directory and subfolder
+  output_directory <- args$out.dir
+  if (substr(output_directory, nchar(output_directory), nchar(output_directory)) != "/") {
+    output_directory <- paste0(output_directory, "/")
+  }
+  new_subfolder <- paste0(output_directory, "Parent_mapping_data/")
+  if (!dir.exists(new_subfolder)) {
+    dir.create(new_subfolder, recursive = TRUE)
+  }
+  # Save the child_data data frame to a CSV file
+  tracks_csv_path <- paste0(new_subfolder, "pm_", child, "_tracks.csv")
+  write.csv(child_data, file = tracks_csv_path, row.names = FALSE)
+
   chr.lengths <- sapply(chrs, function(x) max(vcfs.filtered[[1]]$POS[vcfs.filtered[[1]]$CHROM == x]))
   upds <- list()
   for (chr in chrs){
@@ -1945,11 +2187,17 @@ get.html.list <- function(){
     cat('  ... at pedigree \n')
     
     html.list <- add.main.header(html.list, "Family tree")
-    
-    write.pedigree(paste0(args$out.bs, 'ped.tree.png'))
-    x <- htmltools::img(src = image_uri(paste0(args$out.bs, 'ped.tree.png')),
+    # Ensure the output_directory path ends with a "/"
+    output_directory <- args$out.dir
+    if (substr(output_directory, nchar(output_directory), nchar(output_directory)) != "/") {
+    output_directory <- paste0(output_directory, "/")
+    }
+    # Define the path for the pedigree file
+    pedigree_path <- paste0(output_directory, 'ped.tree.png')
+    # Create the pedigree tree and save it directly to the output directory
+    write.pedigree(pedigree_path)
+    x <- htmltools::img(src = image_uri(pedigree_path),
                         style = paste0('height:',5*100,'px;width:',log(length(args$sample.ids)) * 4 * 100,'px'))
-    invisible(file.remove(paste0(args$out.bs, 'ped.tree.png')))
     html.list <- append.list(html.list, x)
   }
   
@@ -2294,6 +2542,7 @@ suppressMessages(library('htmltools'))
 suppressMessages(library('GenomicRanges'))
 suppressMessages(library('DNAcopy'))
 suppressMessages(library('knitr'))
+suppressMessages(library('dplyr'))
 
 # -----
 # Parameters
@@ -2309,6 +2558,8 @@ args <- list(
   mother.ids=c(),
   genders=c(),
   run.merlin=T,
+  run.visualization = F,
+  BAF.outputformat = "tsv",
   cytoband.file=c(),
   
   ## variant inclusion arguments: filter 1
@@ -2449,39 +2700,516 @@ if (args$run.merlin){
 }
 
 # -----
-# Write output
+# Write output (html)
 # -----
 
-html.list <- get.html.list()
+if (args$run.visualization){
+  html.list <- get.html.list()
+  cat('Saving to HTML ...\n')
+  save_html(html.list, file = paste0(args$out.bs, 'output.html'), libdir = paste0(args$out.bs, 'output_files'))
+  if (args$self.contained) transform.to.selfcontained()
+}
 
-cat('Saving to HTML ...\n')
-save_html(html.list, file = paste0(args$out.bs, 'output.html'), libdir = paste0(args$out.bs, 'output_files'))
-if (args$self.contained) transform.to.selfcontained()
 
 # -----
-# tmp (for validation purposes)
+# Write output (csv)
 # -----
 
-if (args$run.merlin){
-  cat('Saving Merlin output to tables ...\n')
-  for (sample in args$samples.no.u){
-    i = which(args$samples.no.u == sample)
-    geno.table <- cbind(unlist(sapply(chrs, function(chr) rep(chr, nrow(map.list[[chr]])))),
-                        unlist(sapply(chrs, function(chr) map.list[[chr]]$pos)),
-                        sapply(strsplit(unlist(sapply(chrs, function(chr) parsed.geno[[chr]][,i])), '|', fixed = T), function(y) y[[1]]),
-                        sapply(strsplit(unlist(sapply(chrs, function(chr) parsed.geno[[chr]][,i])), '|', fixed = T), function(y) y[[2]]))
-    colnames(geno.table) <- c('chr', 'pos', 'genoA', 'genoB')
-    write.table(geno.table, paste0(args$merlin.dir, sample, '-geno.txt'), sep = '\t', row.names = F, quote = F)
-    flow.table <- cbind(unlist(sapply(chrs, function(chr) rep(chr, nrow(map.list[[chr]])))),
-                        unlist(sapply(chrs, function(chr) map.list[[chr]]$pos)),
-                        sapply(strsplit(unlist(sapply(chrs, function(chr) parsed.flow[[chr]][,i])), '|', fixed = T), function(y) y[1]),
-                        as.character(letter.colors[sapply(strsplit(unlist(sapply(chrs, function(chr) parsed.flow[[chr]][,i])), '|', fixed = T), function(y) y[1])]),
-                        unlist(sapply(chrs, function(chr) is.corrected[[chr]][,(i*2)-1])),
-                        
-                        sapply(strsplit(unlist(sapply(chrs, function(chr) parsed.flow[[chr]][,i])), '|', fixed = T), function(y) y[2]),
-                        as.character(letter.colors[sapply(strsplit(unlist(sapply(chrs, function(chr) parsed.flow[[chr]][,i])), '|', fixed = T), function(y) y[2])]),
-                        unlist(sapply(chrs, function(chr) is.corrected[[chr]][,(i*2)])))
-    colnames(flow.table) <- c('chr', 'pos', 'flowA', 'flowA.hexcol', 'flowA.iscorrected', 'flowB', 'flowB.hexcol', 'flowB.iscorrected')
-    write.table(flow.table, paste0(args$merlin.dir, sample, '-flow.txt'), sep = '\t', row.names = F, quote = F)
+# add new columns about filtering and save
+for (i in 1:length(vcfs)){
+  vcfs[[i]]$On_filter1 <- ifelse(vcfs[[i]][, 'ID'] %in% vcfs.filtered[[i]][, 'ID'], 1, 0)
+  vcfs[[i]]$On_filter2 <- ifelse(vcfs[[i]][, 'ID'] %in% vcfs.filtered2[[i]][, 'ID'], 1, 0)
+}
+
+write.csv(vcfs, paste0(args$out.dir, '/vcfs.csv'))
+
+# saving parsed.flow into csv
+
+combined_flow <- data.frame(matrix(nrow = 0, ncol = dim(parsed.flow[[1]])[2]+1))
+for (i in 1:length(parsed.flow)){
+  parsed.flow[[i]] <- cbind(parsed.flow[[i]], paste0("chr", i))
+  combined_flow <- rbind(combined_flow, parsed.flow[[i]])
+  
+}
+
+write.csv(combined_flow, file.path(args$out.dir, 'parsed_flow.csv'), row.names=FALSE)
+
+# saving parsed.geno into csv
+
+combined_geno <- data.frame(matrix(nrow = 0, ncol = dim(parsed.geno[[1]])[2]+1))
+for (i in 1:length(parsed.geno)){
+  parsed.geno[[i]] <- cbind(parsed.geno[[i]], paste0("chr", i))
+  combined_geno <- rbind(combined_geno, parsed.geno[[i]])
+  
+}
+
+write.csv(combined_geno, file.path(args$out.dir, 'parsed_geno.csv'), row.names=FALSE)
+
+
+# saving is.corrected into csv
+
+combined_corrected <- data.frame(matrix(nrow = 0, ncol = dim(is.corrected[[1]])[2]+1))
+for (i in 1:length(is.corrected)){
+  is.corrected[[i]] <- cbind(is.corrected[[i]], paste0("chr", i))
+  combined_corrected <- rbind(combined_corrected, is.corrected[[i]])
+}
+
+write.csv(combined_corrected, file.path(args$out.dir, 'is_corrected.csv'), row.names=FALSE)
+
+# saving map.list into csv
+
+combined_maplist <- data.frame(matrix(nrow = 0, ncol = dim(map.list[[1]])[2]+1))
+for (i in 1:length(map.list)){
+  map.list[[i]] <- cbind(map.list[[i]], paste0("chr", i))
+  combined_maplist <- rbind(combined_maplist, map.list[[i]])
+}
+colnames(combined_maplist) <- c("id","pos","pos.out","chr")
+write.csv(combined_maplist, file.path(args$out.dir, 'map_list.csv'), row.names=FALSE)
+
+# -----
+# Write BAF to BED file/TSV file
+# -----
+
+out_dir <- args$out.dir  
+vcf_file <- file.path(out_dir, 'vcfs.csv') 
+output_format <- args$BAF.outputformat
+if (output_format == "BOTH"){
+  output_format <- c("tsv", "bed")
+}
+
+# Create subdirectory for BAF files
+baf_dir <- file.path(out_dir, "BAF_files")
+dir.create(baf_dir, showWarnings = FALSE)
+
+# Read VCF data from a CSV file
+vcf_data <- read.csv(vcf_file, stringsAsFactors = FALSE)
+  
+# Convert the data frame to data.table for efficient data manipulation
+setDT(vcf_data)
+  
+# List to collect data from all samples
+all_samples_baf_data <- list()
+  
+# Extract sample identifiers based on unique patterns in column names
+sample_ids <- unique(sub("\\..*", "", colnames(vcf_data)[-1]))
+  
+# Loop over each sample ID
+for (sample_id in sample_ids) {
+  # Filter columns for the current sample
+  sample_cols <- grep(paste0("^", sample_id, "\\."), names(vcf_data), value = TRUE)
+  sample_data <- vcf_data[, ..sample_cols]
+  # Rename columns to remove sample ID prefix
+  setnames(sample_data, sample_cols, sub(paste0(sample_id, "\\."), "", sample_cols))
+  sample_data[, BAF := as.numeric(AF)]
+  
+  # Remove "chr" prefix from chromosome values
+  sample_data[, CHROM := sub("^chr", "", CHROM)]
+
+  # Create Baf-like entries
+  baf_entries <- data.table(
+    chromosome = sample_data$CHROM,
+    start = sample_data$POS - 1,  
+    end = sample_data$POS,
+    REF = sample_data$REF,
+    ALT = sample_data$ALT,
+    BAF = sample_data$BAF,
+    Sample = sample_id
+  )
+  
+  all_samples_baf_data[[sample_id]] <- baf_entries
+
+  # Write the individual sample to a TSV and/or bed file 
+  for (format in output_format) {
+    individual_filename <- file.path(baf_dir, paste0(sample_id, "_BAF.", format))
+    fwrite(baf_entries, file = individual_filename, sep = "\t", quote = FALSE)
   }
+  
+}
+
+# Combine all sample BAF data and write the final file to tsv and/or bed format
+final_baf <- rbindlist(all_samples_baf_data)
+
+for (format in output_format){
+  base_name <- sub("\\.csv$", paste0("_BAF.", format), basename(vcf_file))
+  full_path <- file.path(baf_dir, base_name)
+  fwrite(final_baf, file = full_path, sep = "\t", quote = FALSE)
+  cat("File created at:", full_path, "\n")
+}
+
+# -----
+# Write all the data files even if the visualization hasn't run
+# -----
+
+  ## Copy Number Variations 
+
+if (!args$run.visualization) {
+  invisible(capture.output({
+    get.cn.fig()
+  }))
+}
+
+   ## Mendelian errors
+if (!args$run.visualization) {
+  invisible(capture.output({
+  n.rel <- 0
+  if (length(args$samples.no.u) > 1){
+    for (child in args$samples.no.u){
+      father <- args$father.ids[args$sample.ids == child]
+      mother <- args$mother.ids[args$sample.ids == child]
+      
+      has.father <- !is.na(father) & !(father %in% args$samples.u)
+      has.mother <- !is.na(mother) & !(mother %in% args$samples.u)
+      
+      if (has.mother | has.father) n.rel <- n.rel + 1
+     
+    }
+  }
+  if (length(args$sample.ids) > 1){
+    
+    for (s in args$samples.no.u){
+      father <- args$father.ids[args$sample.ids == s]
+      mother <- args$mother.ids[args$sample.ids == s]
+      
+      has.father <- !is.na(father) & !(father %in% args$samples.u)
+      has.mother <- !is.na(mother) & !(mother %in% args$samples.u)
+      
+      if (length(father[has.father]) | length(mother[has.mother])){
+        get.men.err.fig(s, father[has.father], mother[has.mother], n.rel)
+      }
+    }
+
+  }
+      
+  }))
+}
+
+
+    ## Parent mapping
+if (!args$run.visualization) {
+  invisible(capture.output({
+
+  if (length(args$sample.ids) > 1){
+    for (s in args$samples.no.u){
+      father <- args$father.ids[args$sample.ids == s]
+      mother <- args$mother.ids[args$sample.ids == s]
+      
+      has.father <- !is.na(father) & !(father %in% args$samples.u)
+      has.mother <- !is.na(mother) & !(mother %in% args$samples.u)
+      
+      if (length(father[has.father]) | length(mother[has.mother])){
+        get.pm(s, father[has.father], mother[has.mother])
+      }
+    }
+  }
+  }))
+}
+
+    ## Haplotyping
+
+if (!args$run.visualization) {
+invisible(capture.output({
+    get.haplo.profiles()
+    }))
+}
+
+# -----
+# Save Region of Interest
+# -----
+ 
+# Function to parse the regions and extract start and end positions
+parse_regions_to_csv <- function(regions_list) {
+  # Initialize empty vectors for chromosomes, start positions, and end positions
+  chromosomes <- c()
+  positions <- c()
+  # Process each region
+  for (region in regions_list) {
+    # Split by colon and hyphen
+    parts <- unlist(strsplit(region, "[:-]"))
+    chromosome <- parts[1]
+    start_pos <- as.numeric(parts[2])
+    end_pos <- as.numeric(parts[3])
+    # Append the data to vectors
+    chromosomes <- c(chromosomes, chromosome)
+    positions <- c(positions, start_pos)
+    chromosomes <- c(chromosomes, chromosome)
+    positions <- c(positions, end_pos)
+  }
+  # Create a data frame
+  data.frame(
+    CHROM = chromosomes,
+    POS = positions,
+    stringsAsFactors = FALSE
+  )
+}
+ 
+# Parse the regions and convert to a data frame
+positions_df <- parse_regions_to_csv(args$regions)
+# Create subdirectory for variant file
+Roi_dir <- file.path(out_dir, "ROI/")
+dir.create(Roi_dir, showWarnings = FALSE) 
+Roi_path <- paste0(Roi_dir,"regions_data.csv" )
+# Write the data frame to a CSV file
+write.csv(positions_df,file = Roi_path, row.names = FALSE)
+
+# -----
+# Write the variant info for summary plots
+# -----
+
+
+# Create subdirectory for variant file
+variant_dir <- file.path(out_dir, "Variant_files/")
+dir.create(variant_dir, showWarnings = FALSE)
+# Read VCF data from a CSV file
+vcf_data <- fread(vcf_file, stringsAsFactors = FALSE)
+
+# Function to calculate the number of variants per chromosome based on 2% intervals
+calculate_variant_bins <- function(data, sample_prefix, chromosome_col = "CHROM", pos_col = "POS", af_col_suffix = "AF", GQ_col_suffix = "GQ",DP_col_suffix = "DP", num_bins = 50) {
+  # Extract the columns for the specific sample
+  af_col <- paste0(sample_prefix, ".", af_col_suffix)
+  GQ_col <- paste0(sample_prefix, ".", GQ_col_suffix)
+  DP_col <- paste0(sample_prefix, ".", DP_col_suffix)
+  chromosome_col <- paste0(sample_prefix, ".", chromosome_col)
+  pos_col <- paste0(sample_prefix, ".", pos_col)
+  chrom_data <- data[, c(chromosome_col, pos_col, af_col, GQ_col, DP_col), with = FALSE]
+  
+  # Rename columns for easier manipulation
+  setnames(chrom_data, c(chromosome_col, pos_col, af_col, GQ_col, DP_col), c("CHROM", "POS", "AF", "GQ", "DP"))
+  
+  # Convert AF to numeric for analysis (suppress warning about NAs introduced by coercion)
+  chrom_data$AF <- suppressWarnings(as.numeric(chrom_data$AF))
+
+  # Convert GQ to numeric for analysis (suppress warning about NAs introduced by coercion)
+  chrom_data$GQ <- suppressWarnings(as.numeric(chrom_data$GQ))
+
+  # Convert DP to numeric for analysis (suppress warning about NAs introduced by coercion)
+  chrom_data$DP <- suppressWarnings(as.numeric(chrom_data$DP))
+
+  # Remove rows with missing or NA AF values
+  chrom_data <- chrom_data[!is.na(AF)]
+  # Remove rows with missing or NA AF values
+  chrom_data <- chrom_data[!is.na(GQ)]
+  # Remove rows with missing or NA AF values
+  chrom_data <- chrom_data[!is.na(DP)]
+  
+  # Get the unique chromosomes
+  unique_chromosomes <- unique(chrom_data$CHROM)
+  
+  # Create an empty list to store results for each chromosome
+  result_list <- list()
+  
+  ### Step 1: Per-chromosome calculations ###
+  
+  for (chrom in unique_chromosomes) {
+    # Filter data for the current chromosome
+    chrom_specific_data <- chrom_data[CHROM == chrom]
+    
+    # Determine the min and max positions
+    min_pos <- 5218918
+    min_pos <- as.numeric(min_pos)
+    max_pos <- max(chrom_specific_data$POS) - min_pos
+    
+    # Create bins for AF (2% intervals)
+    af_bins <- cut(chrom_specific_data$AF, breaks = seq(0, 1, by = 0.02), include.lowest = TRUE, right = FALSE)
+    # Create bins for GQ (per 2 intervals)
+    GQ_bins <- cut(chrom_specific_data$GQ, breaks = seq(0, 100, by = 2), include.lowest = TRUE, right = FALSE)
+    
+    
+    # Find the maximum value in the DP column
+    max_DP <- max(chrom_specific_data$DP, na.rm = TRUE)
+    # Calculate the bin width (increment) by dividing max DP by 50
+    bin_width <- max_DP / 50
+    
+    # Create dynamic bins using cut, with 50 bins
+    DP_bins <- cut(chrom_specific_data$DP, 
+                   breaks = seq(0, max_DP, by = bin_width), 
+                   include.lowest = TRUE, 
+                   right = FALSE)
+    # Extract the upper bounds of the AF bins and convert to percentages
+    af_bin_upper <- seq(0.02, 1, by = 0.02) * 100
+    af_bin_labels <- paste0(af_bin_upper, "%")
+    # Extract the upper bounds of the QC bins 
+    GQ_bin_upper <- seq(2, 100, by = 2)
+    GQ_bin_labels <- paste0(GQ_bin_upper)
+    # Extract the upper bounds of the DP bins 
+    DP_bin_breaks <- seq(0, max_DP, by = bin_width)
+    # Extract the upper bounds (remove the first element since it's the lower bound)
+    DP_bin_upper <- DP_bin_breaks[-1]
+    DP_bin_labels <- paste0(DP_bin_upper)
+    
+    
+    # Calculate number of variants in each AF bin
+    af_bin_counts <- table(af_bins)
+    # Calculate number of variants in each GQ bin
+    GQ_bin_counts <- table(GQ_bins)
+    # Calculate number of variants in each DP bin
+    DP_bin_counts <- table(DP_bins)
+    
+    # Apply logarithmic transformation to variant counts
+    log_af_bin_counts <- log10(as.integer(af_bin_counts) + 1)  # +1 to avoid log(0)
+    # Apply logarithmic transformation to variant counts
+    log_GQ_bin_counts <- log10(as.integer(GQ_bin_counts) + 1)  # +1 to avoid log(0)
+    # Apply logarithmic transformation to variant counts
+    log_DP_bin_counts <- log10(as.integer(DP_bin_counts) + 1)  # +1 to avoid log(0)
+    
+    # Ensure that the number of AF bins and position bins match
+    if (length(log_af_bin_counts) < num_bins) {
+      af_bin_labels <- af_bin_labels[1:length(log_af_bin_counts)]  # Ensure AF bin labels match
+    }
+    
+    # Ensure that the number of AF bins and position bins match
+    if (length(log_GQ_bin_counts) < num_bins) {
+      GQ_bin_labels <- GQ_bin_labels[1:length(log_GQ_bin_counts)]  # Ensure GQ bin labels match
+    }
+    # Ensure that the number of AF bins and position bins match
+    if (length(log_DP_bin_counts) < num_bins) {
+      DP_bin_labels <- DP_bin_labels[1:length(log_DP_bin_counts)]  # Ensure GQ bin labels match
+    }
+    
+    # Generate 50 evenly spaced points along the chromosome length
+    midpoints <- seq(min_pos, max_pos, length.out = num_bins)
+    
+    # Combine AF bins and midpoints
+    chrom_result <- data.table(
+      Chromosome = chrom,
+      AF_bin = af_bin_labels,  
+      Amount_log_AF = log_af_bin_counts,
+      Amount_AF = as.integer(af_bin_counts),
+      GQ_bin = GQ_bin_labels,  
+      Amount_log_GQ = log_GQ_bin_counts,
+      Amount_GQ = as.integer(GQ_bin_counts),
+      DP_bin = DP_bin_labels,  
+      Amount_log_DP = log_DP_bin_counts,
+      Amount_DP = as.integer(DP_bin_counts),
+      Midpoint = midpoints,  
+      Part = "chrom"
+    )
+    
+    # Append to the result list
+    result_list[[chrom]] <- chrom_result
+  }
+  
+  ### Step 2: Genome-wide calculations ###
+  
+  # Get the starting position from the first row of chromosome 1
+  first_pos_chr1 <- chrom_data[CHROM == "chr1", .(POS)][1]$POS
+  # Get the length of each chromosome and the cumulative positions
+  chrom_lengths <- chrom_data[, .(Chromosome_Length = max(POS)), by = CHROM]
+  chrom_lengths[, Cumulative_Start := cumsum(c(0, Chromosome_Length[-.N]))] # Cumulative start positions
+  chrom_lengths[, Cumulative_End := Cumulative_Start + Chromosome_Length + first_pos_chr1]  # Cumulative end positions
+  
+  # Total length of the genome
+  total_genome_length <- sum(chrom_lengths$Chromosome_Length)
+  
+  # Create bins for the whole genome (2% intervals for AF)
+  af_bins <- cut(chrom_data$AF, breaks = seq(0, 1, by = 0.02), include.lowest = TRUE, right = FALSE)
+  af_bin_counts <- table(af_bins)
+  # Apply logarithmic transformation to variant counts
+  log_af_bin_counts <- log10(as.integer(af_bin_counts) + 1)  # +1 to avoid log(0)
+  
+  # Create bins for the whole genome (2% intervals for GQ)
+  GQ_bins <- cut(chrom_data$GQ, breaks = seq(0, 100, by = 2), include.lowest = TRUE, right = FALSE)
+  GQ_bin_counts <- table(GQ_bins)
+  # Apply logarithmic transformation to variant counts
+  log_GQ_bin_counts <- log10(as.integer(GQ_bin_counts) + 1)  # +1 to avoid log(0)
+  
+  # Find the maximum value in the DP column
+  max_DP <- max(chrom_specific_data$DP, na.rm = TRUE)
+  # Calculate the bin width (increment) by dividing max DP by 50
+  bin_width <- max_DP / 50
+  
+  # Create dynamic bins using cut, with 50 bins
+  DP_bins <- cut(chrom_specific_data$DP, 
+                 breaks = seq(0, max_DP, by = bin_width), 
+                 include.lowest = TRUE, 
+                 right = FALSE)
+  
+  DP_bin_counts <- table(DP_bins)
+  
+  # Apply logarithmic transformation to variant counts
+  log_DP_bin_counts <- log10(as.integer(DP_bin_counts) + 1)  # +1 to avoid log(0)
+  
+  # Ensure the number of genome-wide position bins matches the AF bins
+  if (length(log_af_bin_counts) < num_bins) {
+    af_bin_labels <- af_bin_labels[1:length(log_af_bin_counts)]
+  }
+  
+  # Ensure the number of genome-wide position bins matches the GQ bins
+  if (length(log_GQ_bin_counts) < num_bins) {
+    GQ_bin_labels <- GQ_bin_labels[1:length(log_GQ_bin_counts)]
+  }
+  # Ensure the number of genome-wide position bins matches the DP bins
+  if (length(log_DP_bin_counts) < num_bins) {
+    DP_bin_labels <- DP_bin_labels[1:length(log_DP_bin_counts)]  # Ensure DP bin labels match
+  }
+  # Get the starting position from the first row of chromosome 1
+  first_pos_chr1 <- chrom_data[CHROM == "chr1", .(POS)][1]$POS
+  print(first_pos_chr1)
+  # Generate 50 evenly spaced points along the genome length
+  genome_midpoints <- seq(first_pos_chr1, first_pos_chr1 + total_genome_length, length.out = num_bins)
+  
+  # Function to map genome-wide midpoints to chromosomes
+  map_genome_midpoints_to_chromosomes <- function(midpoints, chrom_lengths) {
+    mapped_result <- data.table(Midpoint = numeric(), Chromosome = character(), Adjusted_Midpoint = numeric())
+    for (midpoint in midpoints) {
+      for (i in 1:nrow(chrom_lengths)) {
+        chrom <- chrom_lengths$CHROM[i]
+        chrom_start <- chrom_lengths$Cumulative_Start[i]
+        chrom_end <- chrom_lengths$Cumulative_End[i]
+        
+        # Check if the midpoint falls within the chromosome range
+        if (midpoint >= chrom_start && midpoint <= chrom_end) {
+          adjusted_midpoint <- midpoint - chrom_start  # Adjust the midpoint to be relative to the chromosome
+          mapped_result <- rbind(mapped_result, data.table(Midpoint = midpoint, Chromosome = chrom, Adjusted_Midpoint = adjusted_midpoint))
+          break
+        }
+      }
+    }
+    return(mapped_result)
+  }
+  
+  # Map genome-wide midpoints to specific chromosomes
+  mapped_chromosomes <- map_genome_midpoints_to_chromosomes(genome_midpoints, chrom_lengths)
+  
+  # Combine bins and mapped midpoints for the genome
+  genome_result <- data.table(
+    Chromosome = mapped_chromosomes$Chromosome,
+    AF_bin = af_bin_labels,
+    Amount_log_AF = log_af_bin_counts,
+    Amount_AF = as.integer(af_bin_counts),
+    GQ_bin = GQ_bin_labels,  
+    Amount_log_GQ = log_GQ_bin_counts,
+    Amount_GQ = as.integer(GQ_bin_counts),
+    DP_bin = DP_bin_labels,  
+    Amount_log_DP = log_DP_bin_counts,
+    Amount_DP = as.integer(DP_bin_counts),
+    Midpoint = mapped_chromosomes$Adjusted_Midpoint,  
+    Part = "genome"
+  )
+  
+  # Append genome result to the result list
+  result_list[["Genome"]] <- genome_result
+  
+  ### Step 3: Combine results and return ###
+  
+  # Combine the results for all chromosomes and genome
+  final_result <- rbindlist(result_list, use.names=TRUE)
+  
+  return(final_result)
+}
+
+# Identify all sample prefixes by extracting unique prefixes before ".AF" in column names
+sample_columns <- grep("\\.AF$", colnames(vcf_data), value = TRUE)
+sample_prefixes <- unique(sub("\\.AF$", "", sample_columns))
+
+# Loop through each sample prefix and calculate the variant bins
+for (sample_prefix in sample_prefixes) {
+  # Run the function for the specified sample
+  invisible(capture.output(variant_bin_data <- calculate_variant_bins(vcf_data, sample_prefix)))
+  
+  # Save the result to a TSV file
+  output_file <- paste0(variant_dir ,sample_prefix, "_variant_bins.tsv")
+  fwrite(variant_bin_data, output_file, sep = "\t")
+  
+  # Print a message with output file path
+  cat("Variant results saved to: ", output_file, "\n")
 }
