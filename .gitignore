@@ -1,2 +1,4 @@
 .Rhistory
 *.lock
+.vscode
+test.*

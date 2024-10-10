@@ -2,10 +2,11 @@ package hopla
 
 import (
 	"encoding/csv"
+	"fmt"
 	"os"
 	"strconv"
 
-	"log"
+	log "github.com/sirupsen/logrus"
 )
 
 type Cytoband struct {
@@ -37,12 +38,12 @@ func ReadCytobands(cytobandsIdeo string) (cytobands []Cytoband, err error) {
 		band.chromosome = line[0]
 		band.start, err = strconv.Atoi(line[1])
 		if err != nil {
-			log.Printf("unable to parse start position")
+			log.Error("unable to parse start position")
 			break
 		}
 		band.end, err = strconv.Atoi(line[2])
 		if err != nil {
-			log.Printf("unable to parse end position")
+			log.Error("unable to parse end position")
 			break
 		}
 		band.band = line[3]
@@ -50,6 +51,10 @@ func ReadCytobands(cytobandsIdeo string) (cytobands []Cytoband, err error) {
 		cytobands = append(cytobands, *band)
 	}
 
-	return nil, nil
+	if len(cytobands) == 0 {
+		return nil, fmt.Errorf("No valid cytobands found in file")
+	}
+
+	return cytobands, nil
 
 }

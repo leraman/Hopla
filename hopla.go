@@ -3,8 +3,9 @@ package main
 import (
 	"fmt"
 	"io"
-	"log"
 	"os"
+	"regexp"
+	"slices"
 	"strings"
 
 	hopla "github.com/CenterForMedicalGeneticsGhent/Hopla/internal"
@@ -12,11 +13,25 @@ import (
 	"github.com/brentp/irelate/parsers"
 	"github.com/brentp/vcfgo"
 	"github.com/brentp/xopen"
+	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
 )
 
 const version = "2.0.0"
 
+// TYPES
+type PedSample struct {
+	Family string
+	Sample string
+	Father string
+	Mother string
+	Sex    int
+	Status int
+}
+
+type Ped []PedSample
+
+// FUNCTIONS
 func main() {
 	app := &cli.App{
 		Name:      "hopla",
@@ -26,6 +41,12 @@ func main() {
 		Usage:     "Haplotype analysis",
 		UsageText: "hopla --settings <settings.yaml> <vcf>",
 		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:        "loglevel",
+				Usage:       "log level (debug, info, warn, error, fatal, panic)",
+				Value:       "info",
+				DefaultText: "info",
+			},
 			&cli.StringFlag{
 				Name:     "settings",
 				Aliases:  []string{"s"},
@@ -39,6 +60,30 @@ func main() {
 			},
 		},
 		Before: func(c *cli.Context) error {
+			// Set log level
+			switch c.String("loglevel") {
+			case "debug":
+				log.Info("Setting log level to debug")
+				log.SetLevel(log.DebugLevel)
+			case "info":
+				log.Info("Setting log level to info")
+				log.SetLevel(log.InfoLevel)
+			case "warn":
+				log.Info("Setting log level to warn")
+				log.SetLevel(log.WarnLevel)
+			case "error":
+				log.Info("Setting log level to error")
+				log.SetLevel(log.ErrorLevel)
+			case "fatal":
+				log.Info("Setting log level to fatal")
+				log.SetLevel(log.FatalLevel)
+			case "panic":
+				log.Info("Setting log level to panic")
+				log.SetLevel(log.PanicLevel)
+			default:
+				log.Error("Invalid log level, defaulting to info")
+				log.SetLevel(log.InfoLevel)
+			}
 			// Santiy checks
 			// Check if settings file exists
 			if _, err := os.Stat(c.String("settings")); os.IsNotExist(err) {
@@ -59,19 +104,41 @@ func main() {
 			// if err != nil {
 			// 	log.Fatalf("Merlin is not installed")
 			// }
+			// Check if Minx is installed
+			// _, err = exec.LookPath("minx")
+			// if err != nil {
+			// 	log.Fatalf("Minx is not installed")
+			// }
 			return nil
 		},
-		Action: func(c *cli.Context) error {
-			// Load settings yaml file
+		Action: func(c *cli.Context) (err error) {
+			// Create a new settings instance
 			settings := hopla.HoplaSettings{}.New()
+
+			// Load settings yaml file and superimpose on default settings
+			err = settings.Load(c.String("settings"))
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			// Get cytoband file
+			if c.String("cytoband") != "" {
+				cytoband := c.String("cytoband")
+				// Load cytobands
+				_, err := hopla.ReadCytobands(cytoband)
+				if err != nil {
+					log.Warnf("Cytobands will not be displayed: %s", err)
+				}
+			}
 
 			// Get VCF file
 			vcf := c.Args().First()
+			// Load variants
+			_, err = LoadVariants(settings, vcf)
+			if err != nil {
+				log.Fatal(err)
+			}
 
-			// Get cytoband file
-			cytoband := c.String("cytoband")
-
-			RunHopla(settings, vcf, cytoband)
 			return nil
 		},
 	}
@@ -81,15 +148,7 @@ func main() {
 	}
 }
 
-func RunHopla(settings *hopla.HoplaSettings, vcf string, cytoband string) (err error) {
-	// Load cytobands
-	if cytoband != "" {
-		_, err := hopla.ReadCytobands(cytoband)
-		if err != nil {
-			log.Println("Unable to parse Cytobands file: ", err)
-		}
-	}
-
+func LoadVariants(settings *hopla.HoplaSettings, vcf string) (variants []*vcfgo.Variant, err error) {
 	// Load VCF
 	var vcfReader io.Reader
 	// code adapted from vcfanno (https://github.com/brentp/vcfanno/blob/master/vcfanno.go#L130-L161)
@@ -100,14 +159,14 @@ func RunHopla(settings *hopla.HoplaSettings, vcf string, cytoband string) (err e
 			if st, err := rdr.Stat(); err == nil && st.Size() > 2320303098 {
 				vcfReader, err = bgzf.NewReader(rdr, 4)
 				if err == nil {
-					log.Printf("using 4 worker threads to decompress bgzip file")
+					log.Debug("using 4 worker threads to decompress bgzip file")
 				} else {
 					vcfReader = nil
 				}
 			} else {
 				vcfReader, err = bgzf.NewReader(rdr, 2)
 				if err == nil {
-					log.Printf("using 2 worker threads to decompress bgzip file")
+					log.Debug("using 2 worker threads to decompress bgzip file")
 				} else {
 					vcfReader = nil
 				}
@@ -118,10 +177,10 @@ func RunHopla(settings *hopla.HoplaSettings, vcf string, cytoband string) (err e
 	}
 	if vcfReader == nil {
 		vcfReader, err = xopen.Ropen(vcf)
-		log.Printf("falling back to non-bgzip")
+		log.Debug("falling back to non-bgzip")
 	}
 	if err != nil {
-		log.Fatal(fmt.Errorf("error opening vcf file %s: %s", vcf, err))
+		log.Fatalf("error opening vcf file %s: %s", vcf, err)
 	}
 
 	_, query, err := parsers.VCFIterator(vcfReader)
@@ -131,14 +190,28 @@ func RunHopla(settings *hopla.HoplaSettings, vcf string, cytoband string) (err e
 
 	// Get the sequence dictionary from the vcf to get a list of chromosomes
 	sequenceDict := query.Header.Contigs
-	log.Printf("%v contigs found in VCF ", len(sequenceDict))
+	log.Infof("%v contigs found in VCF ", len(sequenceDict))
 
 	// Get the samples from the vcf
 	vcfSamples := query.Header.SampleNames
-	log.Println("Samples in VCF: ", vcfSamples)
+	log.Info("Samples in VCF: ", vcfSamples)
+
+	// Check if samples in settings are in the VCF
+	unknownSampleRegex := regexp.MustCompile(`^U\d+$`)
+	for _, sample := range settings.Samples {
+		if !slices.Contains(vcfSamples, sample) {
+			// Check if the samples is an "unknown" sample
+			// if the sample is not an "unknown" sample, return an error
+			if !unknownSampleRegex.MatchString(sample) {
+				return nil, fmt.Errorf("Sample %s not found in VCF", sample)
+
+			}
+		}
+	}
 
 	for {
 		variant := query.Read()
+		// if the variant is nil, we have reached the end of the file
 		if variant == nil {
 			break
 		}
@@ -149,68 +222,63 @@ func RunHopla(settings *hopla.HoplaSettings, vcf string, cytoband string) (err e
 			continue
 		}
 
-		// Apply Allele Frequency filter
+		// Parse sampleGenotypes from variant
+		err = query.Header.ParseSamples(variant)
+		if err != nil {
+			log.Debugf("Error parsing samples for variant %s with err %s ", variant, err)
+		}
+
+		// Apply hard AF filter
 		AF, err := variant.Info().Get("AF")
 		if err != nil {
-			log.Println("Variant does not have an AF field: ", variant)
+			log.Debug("Variant does not have an AF field: ", variant)
 		}
-		// if the allele frequency is higher than the hard limit, the variant is filtered out
-		if AF.([]float32)[0] >= settings.Filter1.AlleleFrequencyHardLimit {
+		// if the allele frequency is higher or equal to the hard limit, the variant is filtered out
+		if AF.([]float32)[0] < settings.Filter1.AlleleFrequencyHardLimit {
 			continue
 		}
 
-		// Apply Depth filter
-		err = query.Header.ParseSamples(variant)
+		// Apply hard DP filter (Variant depth)
+		DP, err := variant.Info().Get("DP")
 		if err != nil {
-			log.Println("Error parsing samples: ", err)
+			log.Debug("Variant does not have a DP field: ", variant)
 		}
-		sample := variant.Samples[0]
-		DP, err := variant.GetGenotypeField(sample, "DP", 0)
-		if err != nil {
-			log.Println("Variant does not have a DP field: ", variant)
+		// if the depth is lower than the hard limit, the variant is filtered out
+		if DP.(int) < settings.Filter1.DepthHardLimit {
+			continue
 		}
-		fmt.Println(DP)
+
+		// Apply soft DP filter (GT depth)
+		for i, sample := range variant.Samples {
+			if !slices.Contains(settings.Filter1.DepthSoftLimitIds, vcfSamples[i]) {
+				// if the sample is not in the list of samples to apply the soft limit to, skip the sample
+				continue
+			}
+			GTDP, err := variant.GetGenotypeField(sample, "DP", 0)
+			if err != nil {
+				log.Debug("Variant does not have a DP field: ", variant)
+				continue
+			}
+			// if the depth is lower than the soft limit, the sample is filtered out
+			if GTDP.(int) < settings.Filter1.DepthSoftLimit {
+				// remove sample from variant
+				variant.Samples[i] = nil
+			}
+		}
+
+		// If all samples are filtered out, skip the variant
+		for _, sample := range variant.Samples {
+			if sample != nil {
+				break
+			}
+		}
+
+		// Add variant to list of variants
+		variants = append(variants, variant)
 	}
-	// Check if all samples have a sex assigned
-	// If any of the samples has an "NA" sex, infer it from the variants
-	err = PredictSex()
-	if err != nil {
-		return err
+
+	if len(variants) == 0 {
+		return nil, fmt.Errorf("No valid variants found in VCF")
 	}
-
-	// Run Merlin
-	err = hopla.RunMerlin(&settings.Merlin, vcf)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func DepthFilter(settings *hopla.HoplaFilter1Settings, variant *vcfgo.Variant) bool {
-	err := variant.Header.ParseSamples(variant)
-	if err != nil {
-		log.Println("Error parsing samples: ", err)
-	}
-	fmt.Println(variant.Samples[0])
-	//empty return
-
-	// for i := range variant.Header.ParseSamples(variant) {
-	// 	v := variant.Samples[i]
-	// 	fmt.Println(v)
-	// 	DP, err := variant.GetGenotypeField(v, "DP", 0)
-	// 	if err != nil {
-	// 		log.Println("Variant does not have a DP field: ", variant)
-	// 	}
-	// 	fmt.Println(DP)
-	// }
-	return true
-}
-
-func HoplaFilter2(settings *hopla.HoplaFilter2Settings, variant *vcfgo.Variant) bool {
-	return true
-}
-
-func PredictSex() error {
-	return nil
+	return variants, nil
 }
